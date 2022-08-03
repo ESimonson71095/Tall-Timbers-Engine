@@ -1,0 +1,79 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var CONUS_YLB = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_YLB_1994_2019");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var Borders = ee.FeatureCollection("FAO/GAUL_SIMPLIFIED_500m/2015/level0")
+var US = Borders.filterMetadata('ADM0_NAME', 'equals', 'United States of America')
+
+var visParams = {
+               min: 1994, 
+               max: 2019, 
+               palette: ['0191b4','0191b4','0191b4','0191b4','0191b4','0191b4',
+                                                '35bbca','35bbca','35bbca','35bbca','35bbca','35bbca',
+                                                'd3dd18','d3dd18','d3dd18','d3dd18','d3dd18',
+                                                'f8d90f','f8d90f','f8d90f','f8d90f','f8d90f',
+                                                'fe7a15','fe7a15','fe7a15','fe7a15']
+  
+};
+
+Map.addLayer(CONUS_YLB.clip(US), visParams)
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// ADD A LEGEND
+
+// SET POSITION OF PANEL
+var legend = ui.Panel({
+  style: {
+    position: 'bottom-left',
+    padding: '8px 15px'
+  }});
+ 
+// CREATE LEGEND TITLE
+var legendTitle = ui.Label({
+  value: 'Year Last Burned',
+  style: {fontWeight: 'bold',
+    fontSize: '18px',
+    margin: '0 0 4px 0',
+    padding: '0'
+    }});
+ 
+// ADD THE TITLE TO THE PANEL
+legend.add(legendTitle);
+ 
+// CREATES AND STYLES 1 ROW OF THE LEGEND
+var makeRow = function(color, name) {
+ 
+      // CREATE THE LABEL THAT IS ACTUALLY THE COLORED BOX
+      var colorBox = ui.Label({
+        style: {
+          backgroundColor: '#' + color,
+          // USE PADDING TO GIVE THE BOX HEIGHT AND WIDTH
+          padding: '8px',
+          margin: '0 0 4px 0'
+        }});
+ 
+      // CREATE THE LABEL FILLED WITH THE DESCRIPTION TEXT
+      var description = ui.Label({
+        value: name,
+        style: {margin: '0 0 4px 6px'}
+      });
+ 
+      // RETURN THE PANEL
+      return ui.Panel({
+        widgets: [colorBox, description],
+        layout: ui.Panel.Layout.Flow('horizontal')
+      })};
+ 
+//  PALETTE WITH THE COLORS
+var palette =['0191b4','35bbca','d3dd18','f8d90f','fe7a15'];
+ 
+// NAMES ON THE LEGEND
+var names = ['1994 - 1999','2000 - 2005','2006 - 2010','2011 - 2015','2016 - 2019'];
+ 
+// ADD COLOR AND NAMES
+for (var i = 0; i < 5; i++) {
+  legend.add(makeRow(palette[i], names[i]));
+  }  
+ 
+// ADD LEGEND TO MAP (ALTERNATIVELY YOU CAN ALSO PRINT THE LEGEND TO THE CONSOLE)
+Map.add(legend);

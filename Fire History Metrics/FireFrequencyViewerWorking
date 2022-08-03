@@ -1,0 +1,259 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var LLL_FireHistory = ee.ImageCollection("users/esimonson/Fire_History_CONUS/BA_Collection_CONUS"),
+    LLL = ee.FeatureCollection("users/esimonson/AOIs/Longleaf_Legacy"),
+    Viz = {"opacity":1,"bands":["b1"],"min":1,"max":5,"palette":["ffffff","fff700","ff9900","ff0000"]},
+    geometry = /* color: #ffffff */ee.Geometry.MultiPoint();
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// DATA PRE PROCESSING 
+
+// CALCULATE FIRE FREQUENCY WITH BINARY FIRE LAYERS
+//var FireFrequency = LLL_FireHistory.sum()
+// CREATE A MASK FOR NULL (0) VALUES
+//var FireMask = FireFrequency.eq(0)
+// APPLY THE MASK TO THE FIRE FREQUENCY LAYER
+//var FF = FireFrequency.updateMask(FireFrequency)
+
+// REFERENCE IMAGERY
+// Center the map to an area of interest (ex. Tall Timbers)
+Map.setCenter(-84.20875, 30.6565, 12)
+Map.setOptions('HYBRID');
+Map.style().set('cursor', 'crosshair');
+
+// Call in NAIP imagery for reference
+// var NAIP = ee.ImageCollection('USDA/NAIP/DOQQ')
+//   .filterBounds(LLL)
+//   .filterDate('2017-01-01','2017-11-30')
+//   .mosaic();
+// var visParams = {bands:['R', 'G', 'B']}
+// Map.addLayer(NAIP, visParams, 'High Resolution Reference Imagery');
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+var chartPanel2 = ui.Panel({
+  style:
+      {height: '150px', width: '100px', position: 'middle-right', shown: false}
+});
+
+// 2. Add the panel to the Map
+Map.add(chartPanel2);
+
+var chartPanel3 = ui.Panel({
+  style:
+      {height: '150px', width: '100px', position: 'top-right', shown: false}
+});
+
+// 2. Add the panel to the Map
+Map.add(chartPanel3);
+
+// Create panels to hold lon/lat values.
+var lon = ui.Label();
+var lat = ui.Label();
+chartPanel3.add(ui.Panel([lon, lat], ui.Panel.Layout.flow('vertical')));
+
+// IMAGE COLLECTION FILTERING FUNCTION
+var startYr, endYr, ICfilter, ICfilterFrq, FF_Masked, startYrlabel, endYrlabel, STARTYEAR, ENDYEAR;
+ 
+//apply filters input in UI widget
+function applyFilters() {
+  if (!chartPanel2.style().get('shown')) {
+    chartPanel2.style().set('shown', true);
+  }
+  // Set filter variables.
+  startYr = select_startYr.getValue();
+  if (startYr) startYr = ee.Number.parse(startYr);
+  endYr = select_endYr.getValue();
+  if (endYr) endYr = ee.Number.parse(endYr)
+  ICfilter = LLL_FireHistory.filter(ee.Filter.calendarRange(startYr,endYr,'year'))
+  STARTYEAR = ui.Label('Start Year:')
+  startYrlabel = ui.Label(startYr.getInfo())
+  ENDYEAR = ui.Label('End Year:')
+  endYrlabel = ui.Label(endYr.getInfo())
+  chartPanel2.widgets().reset([STARTYEAR, startYrlabel, ENDYEAR, endYrlabel]);
+  ICfilterFrq = ICfilter.sum()
+  FF_Masked = ICfilterFrq.updateMask(ICfilterFrq)
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// CUSTOM DRAWING TOOLS
+// 1. Get the drawing tools widget object; define it as a variable for convenience in recalling it later
+var drawingTools = Map.drawingTools();
+
+// 2. Hide the default drawing tools so you can add your own. You can use the default drawing tools for 
+//    interactive region reduction, but they provide more functionality than is needed when simplicity is the goal
+drawingTools.setShown(false);
+
+// 3. Setup a while loop to clear all existing geometries that have been added as imports from drawing tools (from previously running the script) 
+//    The design of the app is to handle charting a time series for a single geometry, so remove any that exist.
+while (drawingTools.layers().length() > 0) {
+  var layer = drawingTools.layers().get(0);
+  drawingTools.layers().remove(layer);
+}
+
+// 4. Initialize a dummy GeometryLayer with null geometry to act as a placeholder for drawn geometries.
+var dummyGeometry =
+    ui.Map.GeometryLayer({geometries: null, name: 'geometry', color: 'ffffff'});
+
+drawingTools.layers().add(dummyGeometry);
+
+// EVENT CALLBACK FUNCTIONS
+//    Define a series of functions that are called when geometry drawing buttons are clicked: one for clearing the previous geometry from the 
+//    GeometryLayer and one for each drawing mode button (rectangle, polygon, and point)
+// 1. Define the geometry clearing function
+function clearGeometry() {
+  var layers = drawingTools.layers();
+  layers.get(0).geometries().remove(layers.get(0).geometries().get(0));
+}
+
+// 2. Define functions that will be called when each respective drawing button is clicked. Each function will clear previous drawings using the 
+//    clearGeometry function and then initialize drawing for the particular drawing mode
+function drawRectangle() {
+  clearGeometry();
+  drawingTools.setShape('rectangle');
+  drawingTools.draw();
+}
+
+function drawPolygon() {
+  clearGeometry();
+  drawingTools.setShape('polygon');
+  drawingTools.draw();
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// PRODUCE OUTPUTS FROM IMAGE COLLECTION
+// 1. Define panels to hold the histograms. Set the shown style parameter to false to initially hide the panels until the first charts are rendered
+var chartPanel1 = ui.Panel({
+  style:
+      {height: '235px', width: '600px', position: 'bottom-right', shown: false}
+});
+
+// 2. Add the panel to the Map
+Map.add(chartPanel1);
+
+
+// 3. Define a function that gets called on geometry drawing completion and editing events to generate a zonal histogram for the drawn region. 
+//    See code comments for an explanation of each step. In summary, the function shows the chart panel on the first drawing event, clears previously 
+//    rendered charts, gets the drawn geometry, calculates the region reduction scale based on the Map scale, and renders a chart in the chart panel.
+function chartzonalhist() {
+  // Make the chart panel visible the first time a geometry is drawn.
+  if (!chartPanel1.style().get('shown')) {
+    chartPanel1.style().set('shown', true);
+  }
+
+  // Get the drawn geometry; it will define the reduction region.
+  var aoi = drawingTools.layers().get(0).getEeObject();
+
+  // Set the drawing mode back to null; turns drawing off.
+  drawingTools.setShape(null);
+
+  // Reduction scale is based on map scale to avoid memory/timeout errors.
+  var mapScale = Map.getScale();
+  var scale = mapScale > 5000 ? mapScale * 2 : 5000;
+
+  // Create a zonal histogram for the selected area of interest.
+  // Pre-define some customization options.
+  var options1 = {
+  title: 'Fire Frequency Histogram for Area of Interest',
+  fontSize: 14,
+  hAxis: {title: 'Fire Frequency Range'},
+  vAxis: {title: 'Count of Fire Frequency Pixels (30m)'}
+  };
+  
+  // PLOT FIRE FREQUENCY HISTOGRAM
+  var chart1 = ui.Chart.image.histogram(FF_Masked, aoi, 30)
+                  .setOptions(options1);
+  
+  // SET VISUALIZATION PARAMETERS AND ADD FIRE FREQUENCY LAYER TO MAP            
+  var shown = true; // true or false, 1 or 0
+  //var opacity = 0.2; // number [0-1]
+  var layer1 = ui.Map.Layer(ICfilterFrq.clip(aoi), Viz, 'Fire Frequency', shown);
+  Map.layers().set(1, layer1)
+  // Replace the existing chart in the chart panel with the new chart.
+  chartPanel1.widgets().reset([chart1]);
+  }
+
+Map.onClick(function(coords) {
+  if (!chartPanel3.style().get('shown')) {
+    chartPanel3.style().set('shown', true);
+  }
+  // Update the lon/lat panel with values from the click event.
+  lon.setValue('lon: ' + coords.lon.toFixed(2)),
+  lat.setValue('lat: ' + coords.lat.toFixed(2));
+
+  // Add a red dot for the point clicked on.
+  var point = ee.Geometry.Point(coords.lon, coords.lat);
+  var dot = ui.Map.Layer(point, {color: 'FF0000'});
+  Map.layers().set(1, dot);
+})
+
+// 4. Set the drawing tools widget to listen for geometry drawing and editing events and respond with the chartNdviTimeSeries function.
+// Note that ui.util.debounce wraps the chartNdviTimeSeries function to reduce the frequency of it being invoked while drawing and editing a geometry. 
+// Here, the delay is set to 500 milliseconds or 0.5 seconds.
+drawingTools.onDraw(ui.util.debounce(chartzonalhist, 500));
+drawingTools.onEdit(ui.util.debounce(chartzonalhist, 500));
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// USER INTERFACE
+// This section defines the drawing control panel, which contains instructions and drawing tool buttons.
+// 1. Define a dictionary of symbols to augment the text label for each of the geometry buttons defined in the following step. 
+// The symbols are kept separate from the text to avoid unexpected cursor behavior when mixing symbols and text.
+var symbol = {
+  rectangle: '⬛',
+  polygon: '🔺',
+};
+
+var controlPanel = ui.Panel({style: {height: '600px', width: '400px', position: 'bottom-left'}, layout: null})
+// LOGO
+var logo = ee.Image("users/esimonson/Logos/Tall_Timbers_Logo");
+var branding = ui.Thumbnail({image:logo,params:{bands:['b1','b2','b3'],min:0,max:255},style:{width:'270px',height:'130px'}});
+var header = ui.Label('Generate Fire Frequency Metrics for an Area of Interest', {fontWeight: 'bold', fontSize: '14px', margin: '10px 5px'})
+controlPanel.add(branding).add(header)
+
+// 1. Select Year and Duration of Time Series 
+var textboxStyle = ui.Textbox({style: {width:'8px'}});
+var select_startYr = ui.Textbox({placeholder: 'Start Year',  value: '1994',
+  style: {width: '100px'}}); //defaults to 2010
+var select_endYr = ui.Textbox({placeholder: 'End Year',  value: '2019',
+  style: {width: '100px'}}); //defaults to 2019
+controlPanel.add(ui.Label('1) Select Start and End Year for Time Series', {fontWeight: 'bold'}));
+var datasetRange_label = ui.Label('StartYear',
+  {margin: '0 0 0 10px',fontSize: '12px',color: 'gray'});
+var durRange_label = ui.Label('End Year',
+  {margin: '0 0 0 65px',fontSize: '12px',color: 'gray'});
+
+var durRange_subtext = ui.Panel([datasetRange_label, durRange_label],
+  ui.Panel.Layout.flow('horizontal'));
+var row2 = ui.Panel([select_startYr, select_endYr],
+  ui.Panel.Layout.flow('horizontal'));
+controlPanel.add(durRange_subtext).add(row2);
+
+// 2. Generate Image Collection Based on User Inputs 
+var runButton = ui.Button('Print Start and End Years to the Console', applyFilters);
+controlPanel.add(ui.Label('Years between 1994 and 2019 must be selected',{fontSize: '12px'}))
+controlPanel.add(ui.Label('2) Create Fire History Time Series', {fontWeight: 'bold'})).add(runButton);
+controlPanel.add(ui.Label('Complete steps 1 & 2 before proceeding to the final step',{fontSize: '12px'}))
+
+// 3. Specifiy an Area of Interest
+var AOIPanel = ui.Panel({
+  widgets: [
+    ui.Label('3) Zoom to an Area of Interest', {fontWeight: 'bold'}), 
+    ui.Label('Use the tools below to define a custom area',{fontSize: '12px'}),
+    ui.Button({
+      label: symbol.rectangle + ' Rectangle',
+      onClick: drawRectangle,
+      style: {stretch: 'horizontal'}
+    }),
+    ui.Button({
+      label: symbol.polygon + ' Polygon',
+      onClick: drawPolygon,
+      style: {stretch: 'horizontal'}
+    }),
+]
+})
+
+controlPanel.add(AOIPanel)
+
+// // Add the panel to the Map.
+Map.add(controlPanel);

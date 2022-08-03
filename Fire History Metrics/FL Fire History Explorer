@@ -1,0 +1,260 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var Counties = ee.FeatureCollection("users/esimonson/AOIs/Florida_Counties"),
+    FireHistory = ee.ImageCollection("users/esimonson/SE_FHM/FireLayer_Collection_SE"),
+    FRQ = ee.Image("users/esimonson/SE_FHM/FRQ_Fire_16bit");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// DATA PRE-PROCESSING
+
+// CREATE NO DATA MASK
+var FRQ_Mask = FRQ.neq(0)
+// SET NO DATA TO NULL
+var FRQ = FRQ.updateMask(FRQ_Mask).clip(Counties)
+
+// FUNCTION TO CONVERT FIRE HISTORY TO ACRES
+var Acre_Conversion = function(image) {
+  var AcreImage = image.multiply(0.222395);
+    return AcreImage.copyProperties(image, ['system:time_start'])
+  };
+
+// APPLY ACRE FUNCTION TO FIRE HISTORY, CREATE NEW IMAGE COLLECTION
+var AcreCollection = FireHistory.map(Acre_Conversion)
+
+//////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+/*
+* Data sources
+*/
+
+// The GHSL global population density dataset for 2015.
+var ghslPop = ee.Image('JRC/GHSL/P2016/POP_GPW_GLOBE_V1/2015');
+
+// Country boundary data with associated precomputed population totals.
+// These are USDOS LSIB boundaries simplified somewhat for visualization.
+var countries = ee.FeatureCollection(
+    'projects/google/examples/population-explorer/LSIB_SIMPLE-with-GHSL_POP');
+
+
+/*
+* Visualization and styling
+*/
+
+var FRQ_STYLE = {
+    min: 1, 
+    max: 26, 
+    palette: ['fffad3','ffd8a8','ffd8a8','ffa344','ffa344','ffa344','ff0000','ff0000','ff0000','a90000','a90000',
+    'a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000']
+}
+
+// Constants used to visualize the data on the map.
+var POPULATION_STYLE = {
+  min: 0,
+  max: 26,
+  palette: ['fffad3', 'ffd8a8', 'ffa344','ff0000','a90000']
+};
+var POPULATION_VIS_MAX_VALUE = 26;
+var POPULATION_VIS_NONLINEARITY = 4;
+var COUNTIES_STYLE = {color: '000000', fillColor: '00000000'};
+var HIGHLIGHT_STYLE = {color: '8856a7', fillColor: '8856a7C0'};
+
+var options = {
+title: 'Florida Fire History by County',
+fontSize: 12,
+hAxis: {},
+vAxis: {title: 'Burned Area (Acres)', viewWindow: {min: 0}},
+legend: {},
+};
+
+// Apply a non-linear stretch to the population data for visualization.
+function colorStretch(image) {
+  return image.divide(POPULATION_VIS_MAX_VALUE)
+      .pow(1 / POPULATION_VIS_NONLINEARITY);
+}
+
+// Inverts the nonlinear stretch we apply to the population data for
+// visualization, so that we can back out values to display in the legend.
+// This uses ordinary JavaScript math functions, rather than Earth Engine
+// functions, since we're going to call it from JS to compute label values.
+function undoColorStretch(val) {
+  return Math.pow(val, POPULATION_VIS_NONLINEARITY) * POPULATION_VIS_MAX_VALUE;
+}
+
+// Configure our map with a minimal set of controls.
+Map.setControlVisibility(false);
+Map.setControlVisibility({scaleControl: true, zoomControl: true});
+Map.style().set({cursor: 'crosshair'});
+Map.setCenter(-82.6403, 27.7676, 7);
+
+// Add our two base layers to the map: global population density and countries.
+Map.addLayer(FRQ, FRQ_STYLE);
+Map.addLayer(Counties.style(COUNTIES_STYLE));
+
+// Create the application title bar.
+Map.add(ui.Label('Florida Fire History Explorer', {fontWeight: 'bold', fontSize: '24px'}));
+
+
+/*
+* The chart panel in the bottom-right
+*/
+
+// A list of points the user has clicked on, as [lon,lat] tuples.
+var selectedPoints = [];
+
+// Returns the list of countries the user has selected.
+function getSelectedCounties() {
+  return Counties.filterBounds(ee.Geometry.MultiPoint(selectedPoints));
+}
+
+// Makes a bar chart of the given FeatureCollection of countries by name.
+function makeResultsBarChart(counties) {
+  var chart = ui.Chart.image.seriesByRegion(AcreCollection, counties, ee.Reducer.sum(), 'b1',30,'system:time_start','COUNTYNAME').setOptions(options)//.setChartType('BarChart');
+  chart.style().set({stretch: 'both'});
+  return chart;
+}
+
+// Makes a table of the given FeatureCollection of countries by name.
+function makeResultsTable(counties) {
+  var table = ui.Chart.feature.byFeature(counties, 'Name');
+  table.setChartType('Table');
+  table.setOptions({allowHtml: true, pageSize: 5});
+  table.style().set({stretch: 'both'});
+  return table;
+}
+
+// Updates the map overlay using the currently-selected countries.
+function updateOverlay() {
+  var overlay = getSelectedCounties().style(HIGHLIGHT_STYLE);
+  Map.layers().set(2, ui.Map.Layer(overlay));
+}
+
+// Updates the chart using the currently-selected charting function,
+function updateChart() {
+  var chartBuilder = chartTypeToggleButton.value;
+  var chart = chartBuilder(getSelectedCounties());
+  resultsPanel.clear().add(chart).add(buttonPanel);
+}
+
+// Clears the set of selected points and resets the overlay and results
+// panel to their default state.
+function clearResults() {
+  selectedPoints = [];
+  Map.layers().remove(Map.layers().get(2));
+  var instructionsLabel = ui.Label('Select counties to compare burned area time series.');
+  resultsPanel.widgets().reset([instructionsLabel]);
+}
+
+// Register a click handler for the map that adds the clicked point to the
+// list and updates the map overlay and chart accordingly.
+function handleMapClick(location) {
+  selectedPoints.push([location.lon, location.lat]);
+  updateOverlay();
+  updateChart();
+}
+Map.onClick(handleMapClick);
+
+// A button widget that toggles (or cycles) between states.
+// To construct a ToggleButton, supply an array of objects describing
+// the desired states, each with 'label' and 'value' properties.
+function ToggleButton(states, onClick) {
+  var index = 0;
+  var button = ui.Button(states[index].label);
+  button.value = states[index].value;
+  button.onClick(function() {
+    index = ++index % states.length;
+    button.setLabel(states[index].label);
+    button.value = states[index].value;
+    onClick();
+  });
+  return button;
+}
+
+// Our chart type toggle button: the button text is the opposite of the
+// current state, since you click the button to switch states.
+var chartTypeToggleButton = ToggleButton(
+    [
+      {
+        label: 'Display results as table',
+        value: makeResultsBarChart,
+      },
+      {
+        label: 'Display selected counties as table',
+        value: makeResultsTable,
+      }
+    ],
+    updateChart);
+
+// A panel containing the two buttons .
+var buttonPanel = ui.Panel(
+    [ui.Button('Clear results', clearResults), chartTypeToggleButton],
+    ui.Panel.Layout.Flow('horizontal'), {margin: '0 0 0 auto', width: '500px'});
+
+var resultsPanel = ui.Panel({style: {position: 'bottom-right'}});
+Map.add(resultsPanel);
+clearResults();
+
+
+/*
+* The legend panel in the bottom-left
+*/
+
+// A color bar widget. Makes a horizontal color bar to display the given
+// color palette.
+function ColorBar(palette) {
+  return ui.Thumbnail({
+    image: ee.Image.pixelLonLat().select(0),
+    params: {
+      bbox: [0, 0, 1, 0.1],
+      dimensions: '100x10',
+      format: 'png',
+      min: 0,
+      max: 1,
+      palette: palette,
+    },
+    style: {stretch: 'horizontal', margin: '0px 8px'},
+  });
+}
+
+// Returns our labeled legend, with a color bar and three labels representing
+// the minimum, middle, and maximum values.
+function makeLegend() {
+  var labelPanel = ui.Panel(
+      [
+        ui.Label(Math.round(undoColorStretch(0)), {margin: '4px 8px'}),
+        ui.Label(
+            Math.round(undoColorStretch(0.5)),
+            {margin: '4px 8px', textAlign: 'center', stretch: 'horizontal'}),
+        ui.Label(Math.round(undoColorStretch(1)), {margin: '4px 8px'})
+      ],
+      ui.Panel.Layout.flow('horizontal'));
+  return ui.Panel([ColorBar(POPULATION_STYLE.palette), labelPanel]);
+}
+
+// Styling for the legend title.
+var LEGEND_TITLE_STYLE = {
+  fontSize: '20px',
+  fontWeight: 'bold',
+  stretch: 'horizontal',
+  textAlign: 'center',
+  margin: '4px',
+};
+
+// Styling for the legend footnotes.
+var LEGEND_FOOTNOTE_STYLE = {
+  fontSize: '10px',
+  stretch: 'horizontal',
+  textAlign: 'center',
+  margin: '4px',
+};
+
+// Assemble the legend panel.
+Map.add(ui.Panel(
+    [
+      ui.Label('Fire Frequency', LEGEND_TITLE_STYLE), makeLegend(),
+      ui.Label(
+          '# of Burned Areas Detected (1994-2019)', LEGEND_FOOTNOTE_STYLE),
+      ui.Label(
+          'Source: USGS Landsat BA Version 2.0', LEGEND_FOOTNOTE_STYLE),
+      //ui.Label('County boundaries source: US Census Bureau', LEGEND_FOOTNOTE_STYLE)
+    ],
+    ui.Panel.Layout.flow('vertical'),
+    {width: '230px', position: 'bottom-left'}));

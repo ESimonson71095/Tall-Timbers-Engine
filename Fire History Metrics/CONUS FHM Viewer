@@ -1,0 +1,902 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var Country_Polys = ee.FeatureCollection("FAO/GAUL_SIMPLIFIED_500m/2015/level0"),
+    CONUS_Wildfires = ee.FeatureCollection("users/esimonson/Wildfires/CONUS_Wildfires_1994_2019"),
+    Southeast = ee.FeatureCollection("users/esimonson/SE_FHM/Southeast_AOI_Updated"),
+    LIT_Boundary = ee.FeatureCollection("users/esimonson/SE_FHM/LIT_Boundaries_2020"),
+    LLL = ee.FeatureCollection("users/esimonson/AOIs/Longleaf_Legacy"),
+    NLCD = ee.ImageCollection("USGS/NLCD_RELEASES/2016_REL"),
+    PublicLands = ee.FeatureCollection("users/esimonson/AOIs/Federal_Land_CONUS"),
+    FireHistory = ee.ImageCollection("users/esimonson/Fire_History_CONUS/BA_Collection_CONUS"),
+    BA_1994 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_1994"),
+    BA_1995 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_1995"),
+    BA_1996 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_1996"),
+    BA_1997 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_1997"),
+    BA_1998 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_1998"),
+    BA_1999 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_1999"),
+    BA_2000 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2000"),
+    BA_2001 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2001"),
+    BA_2002 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2002"),
+    BA_2003 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2003"),
+    BA_2004 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2004"),
+    BA_2005 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2005"),
+    BA_2006 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2006"),
+    BA_2007 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2007"),
+    BA_2008 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2008"),
+    BA_2009 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2009"),
+    BA_2010 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2010"),
+    BA_2011 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2011"),
+    BA_2012 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2012"),
+    BA_2013 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2013"),
+    BA_2014 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2014"),
+    BA_2015 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2015"),
+    BA_2016 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2016"),
+    BA_2017 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2017"),
+    BA_2018 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2018"),
+    BA_2019 = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_2019"),
+    FRQ = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_FRQ_1994_2019"),
+    LFFI = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_LFFI_1994_2019"),
+    TSPF = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_TSPF_1994_2019"),
+    YLB = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_YLB_1994_2019"),
+    NoData = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_1994");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// DATA PRE-PROCESSING
+
+// SET AREA OF INTEREST FOR RASTER CLIPPING
+var SE_AOI = Country_Polys.filterMetadata('ADM0_NAME', 'equals', 'United States of America')
+
+// SET REFERENCE LOCATION(S) 
+var locationDict = {
+  'Southeast': {lon: -84.1557, lat: 31.5785, zoom: 8},
+};
+
+// EXTRACT PUBLIC LANDS NAMES TO A VARIABLE
+var PublicLandNames = PublicLands.aggregate_array('GNIS_Name1').sort()
+
+// IMPORT FIRMS COLLECTION
+var firms = ee.ImageCollection('FIRMS').select('T21');
+
+// SET START AND END YEAR
+var startyear = 2000;
+var endyear = 2019;
+ 
+// MAKE A LIST OF YEARS FROM 2000 TO 2019
+var years = ee.List.sequence(startyear, endyear);
+
+// FUNCTION TO AGGREGATE MODIS FIRMS COLLECTION BY YEAR
+var annualCollection = ee.ImageCollection.fromImages(
+  years.map(function (year) {
+    var annual = firms
+        .filter(ee.Filter.calendarRange(year, year, 'year'))
+        .max();
+    return annual
+        .set('year', year)
+        .set('system:time_start', ee.Date.fromYMD(year, 1, 1));
+}));
+
+// FUNCTION TO CLIP IMAGES IN IMAGE COLLECTION
+var firms_bounds = function(image) {
+  // RETURN IMAGE CLIPPED BY AOI
+  return image.clip(SE_AOI);
+};
+
+var FIRMSClipped = annualCollection.map(firms_bounds);
+
+// SET FIRMS VISUALIZATION PARAMETERS
+var firmsVis = {
+  min: 325.0,
+  max: 400.0,
+  palette: ['red', 'orange', 'yellow'],
+};
+
+// FUNCTION TO CONVERT FIRE HISTORY TO ACRES
+var Acre_Conversion = function(image) {
+  var AcreImage = image.multiply(0.222395);
+    return AcreImage.copyProperties(image, ['system:time_start'])
+  };
+
+// APPLY ACRE FUNCTION TO FIRE HISTORY, CREATE NEW IMAGE COLLECTION
+var AcreCollection = FireHistory.map(Acre_Conversion)
+
+// CREATE BLANK (NO DATA) IMAGE FOR UI
+var NoDataMask = NoData.gt(1)
+var NoData = NoData.updateMask(NoDataMask)
+
+// IMPORT NAIP IMAGERY
+var NAIP = ee.ImageCollection('USDA/NAIP/DOQQ')
+
+// CREATE ANNUAL NAIP LAYERS
+var NAIP_2019 = NAIP.filterDate('2019-01-01', '2019-12-31').mosaic()
+var NAIP_2017 = NAIP.filterDate('2017-01-01', '2017-12-31').mosaic()
+var NAIP_2015 = NAIP.filterDate('2015-01-01', '2015-12-31').mosaic()
+var NAIP_2013 = NAIP.filterDate('2013-01-01', '2013-12-31').mosaic()
+var NAIP_2010 = NAIP.filterDate('2010-01-01', '2010-12-31').mosaic()
+var NAIP_2007 = NAIP.filterDate('2007-01-01', '2007-12-31').mosaic()
+var NAIP_2006 = NAIP.filterDate('2006-01-01', '2006-12-31').mosaic()
+var NAIP_2005 = NAIP.filterDate('2005-01-01', '2005-12-31').mosaic()
+
+// CREATE AN IMAGE COLLECTION WITH THE NAIP (AND NO DATA) LAYERS
+var naip_images = {
+  'None': NoData,
+  '2019': NAIP_2019, 
+  '2017': NAIP_2017,
+  '2015': NAIP_2015,
+  '2013': NAIP_2013,
+  '2010': NAIP_2010,
+  '2007': NAIP_2007,
+  '2006': NAIP_2006,
+  '2005': NAIP_2005,
+};
+
+// IMPORT NLCD DATA
+NLCD = NLCD.filterDate('2016-01-01','2016-12-31').mosaic().clip(SE_AOI)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// CREATE NO DATA MASK
+var BA_1994_Mask = BA_1994.neq(0)
+var BA_1995_Mask = BA_1995.neq(0)
+var BA_1996_Mask = BA_1996.neq(0)
+var BA_1997_Mask = BA_1997.neq(0)
+var BA_1998_Mask = BA_1998.neq(0)
+var BA_1999_Mask = BA_1999.neq(0)
+var BA_2000_Mask = BA_2000.neq(0)
+var BA_2001_Mask = BA_2001.neq(0)
+var BA_2002_Mask = BA_2002.neq(0)
+var BA_2003_Mask = BA_2003.neq(0)
+var BA_2004_Mask = BA_2004.neq(0)
+var BA_2005_Mask = BA_2005.neq(0)
+var BA_2006_Mask = BA_2006.neq(0)
+var BA_2007_Mask = BA_2007.neq(0)
+var BA_2008_Mask = BA_2008.neq(0)
+var BA_2009_Mask = BA_2009.neq(0)
+var BA_2010_Mask = BA_2010.neq(0)
+var BA_2011_Mask = BA_2011.neq(0)
+var BA_2012_Mask = BA_2012.neq(0)
+var BA_2013_Mask = BA_2013.neq(0)
+var BA_2014_Mask = BA_2014.neq(0)
+var BA_2015_Mask = BA_2015.neq(0)
+var BA_2016_Mask = BA_2016.neq(0)
+var BA_2017_Mask = BA_2017.neq(0)
+var BA_2018_Mask = BA_2018.neq(0)
+var BA_2019_Mask = BA_2019.neq(0)
+var FRQ_Mask = FRQ.neq(0)
+var LFFI_Mask = LFFI.neq(0)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// SET NO DATA TO NULL AND CLIP TO AOI
+var BA_1994 = BA_1994.updateMask(BA_1994_Mask).clip(SE_AOI)
+var BA_1995 = BA_1995.updateMask(BA_1995_Mask).clip(SE_AOI)
+var BA_1996 = BA_1996.updateMask(BA_1996_Mask).clip(SE_AOI)
+var BA_1997 = BA_1997.updateMask(BA_1997_Mask).clip(SE_AOI)
+var BA_1998 = BA_1998.updateMask(BA_1998_Mask).clip(SE_AOI)
+var BA_1999 = BA_1999.updateMask(BA_1999_Mask).clip(SE_AOI)
+var BA_2000 = BA_2000.updateMask(BA_2000_Mask).clip(SE_AOI)
+var BA_2001 = BA_2001.updateMask(BA_2001_Mask).clip(SE_AOI)
+var BA_2002 = BA_2002.updateMask(BA_2002_Mask).clip(SE_AOI)
+var BA_2003 = BA_2003.updateMask(BA_2003_Mask).clip(SE_AOI)
+var BA_2004 = BA_2004.updateMask(BA_2004_Mask).clip(SE_AOI)
+var BA_2005 = BA_2005.updateMask(BA_2005_Mask).clip(SE_AOI)
+var BA_2006 = BA_2006.updateMask(BA_2006_Mask).clip(SE_AOI)
+var BA_2007 = BA_2007.updateMask(BA_2007_Mask).clip(SE_AOI)
+var BA_2008 = BA_2008.updateMask(BA_2008_Mask).clip(SE_AOI)
+var BA_2009 = BA_2009.updateMask(BA_2009_Mask).clip(SE_AOI)
+var BA_2010 = BA_2010.updateMask(BA_2010_Mask).clip(SE_AOI)
+var BA_2011 = BA_2011.updateMask(BA_2011_Mask).clip(SE_AOI)
+var BA_2012 = BA_2012.updateMask(BA_2012_Mask).clip(SE_AOI)
+var BA_2013 = BA_2013.updateMask(BA_2013_Mask).clip(SE_AOI)
+var BA_2014 = BA_2014.updateMask(BA_2014_Mask).clip(SE_AOI)
+var BA_2015 = BA_2015.updateMask(BA_2015_Mask).clip(SE_AOI)
+var BA_2016 = BA_2016.updateMask(BA_2016_Mask).clip(SE_AOI)
+var BA_2017 = BA_2017.updateMask(BA_2017_Mask).clip(SE_AOI)
+var BA_2018 = BA_2018.updateMask(BA_2018_Mask).clip(SE_AOI)
+var BA_2019 = BA_2019.updateMask(BA_2019_Mask).clip(SE_AOI)
+var FRQ = FRQ.updateMask(FRQ_Mask).clip(SE_AOI)
+var LFFI = LFFI.updateMask(LFFI_Mask).clip(SE_AOI)
+var TSPF = TSPF.clip(SE_AOI)
+var YLB = YLB.clip(SE_AOI)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// RENAME BANDS FOR EACH OF THE LAYERS
+var BA_1994 = BA_1994.select(['b1'],['1994'])
+var BA_1995 = BA_1995.select(['b1'],['1995'])
+var BA_1996 = BA_1996.select(['b1'],['1996'])
+var BA_1997 = BA_1997.select(['b1'],['1997'])
+var BA_1998 = BA_1998.select(['b1'],['1998'])
+var BA_1999 = BA_1999.select(['b1'],['1999'])
+var BA_2000 = BA_2000.select(['b1'],['2000'])
+var BA_2001 = BA_2001.select(['b1'],['2001'])
+var BA_2002 = BA_2002.select(['b1'],['2002'])
+var BA_2003 = BA_2003.select(['b1'],['2003'])
+var BA_2004 = BA_2004.select(['b1'],['2004'])
+var BA_2005 = BA_2005.select(['b1'],['2005'])
+var BA_2006 = BA_2006.select(['b1'],['2006'])
+var BA_2007 = BA_2007.select(['b1'],['2007'])
+var BA_2008 = BA_2008.select(['b1'],['2008'])
+var BA_2009 = BA_2009.select(['b1'],['2009'])
+var BA_2010 = BA_2010.select(['b1'],['2010'])
+var BA_2011 = BA_2011.select(['b1'],['2011'])
+var BA_2012 = BA_2012.select(['b1'],['2012'])
+var BA_2013 = BA_2013.select(['b1'],['2013'])
+var BA_2014 = BA_2014.select(['b1'],['2014'])
+var BA_2015 = BA_2015.select(['b1'],['2015'])
+var BA_2016 = BA_2016.select(['b1'],['2016'])
+var BA_2017 = BA_2017.select(['b1'],['2017'])
+var BA_2018 = BA_2018.select(['b1'],['2018'])
+var BA_2019 = BA_2019.select(['b1'],['2019'])
+var FRQ = FRQ.select(['b1'],['FRQ'])
+var LFFI = LFFI.select(['b1'],['LFFI'])
+var YLB = YLB.select(['b1'],['YLB'])
+var TSPF = TSPF.select(['b1'],['TSPF'])
+var NLCD = NLCD.select(['landcover'],['landcover'])
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// CREATE EMPTY IMAGES THAT WILL BE FILLED WITH FEATURE COLLECTION OUTLINES
+var empty1 = ee.Image().byte();
+var empty2 = ee.Image().byte();
+
+// SET FEATURE COLLECTIONS TO BE RENDERED AS OUTLINES
+var PublicLands_outline = empty1.paint({
+  featureCollection: PublicLands,
+  color: 1,
+  width: 3
+});
+var LIT_outline = empty2.paint({
+  featureCollection: LIT_Boundary,
+  color: 1,
+  width: 3
+});
+
+// DEFINE SOME CONSTANTS
+var FREQUENCY = ' Fire Frequency';
+var TIMESINCEFIRE = 'Time Since Previous Fire';
+var YEARSINCEFIRE = 'Year Last Burned';
+var FIREFREE = 'Longest Fire Free Interval'
+
+// MERGE THE IMAGES INTO AN IMAGE COLLECTION
+var merged = ee.ImageCollection([YLB,TSPF,LFFI,FRQ,BA_1994,BA_1995,BA_1996,BA_1997,BA_1998,BA_1999,BA_2000,
+              BA_2001,BA_2002,BA_2003,BA_2004,BA_2005,BA_2006,BA_2007,BA_2008,BA_2009,BA_2010,BA_2011,BA_2012,
+              BA_2013,BA_2014,BA_2015,BA_2016,BA_2017,BA_2018,BA_2019,NLCD])
+
+// CONVERT IMAGE COLLECTION TO IMAGE
+var FHMLayer = merged.toBands();
+
+// CONFIGURE RASTER LAYER PROPERTIES
+var layerProperties = {
+  'Year Last Burned': {
+    name: '0_YLB',
+    visParams: {min: 1994, max: 2019, palette: ['0191b4','0191b4','0191b4','0191b4','0191b4','0191b4',
+                                                '35bbca','35bbca','35bbca','35bbca','35bbca','35bbca',
+                                                'd3dd18','d3dd18','d3dd18','d3dd18','d3dd18',
+                                                'f8d90f','f8d90f','f8d90f','f8d90f','f8d90f',
+                                                'fe7a15','fe7a15','fe7a15','fe7a15']},
+    legend: [{'1994 - 1999': '0191b4'},{'2000 - 2005': '35bbca'},{'2006 - 2010': 'd3dd18'},{'2011 - 2015': 'f8d90f'},{'2016 - 2019': 'fe7a15'}],
+    defaultVisibility: true
+  },
+  'Time Since Previous Fire': {
+    name: '1_TSPF',
+    visParams: {min: 1, max: 26, palette: ['d46c4e','d46c4e','d46c4e','d46c4e',
+                                           'f9ad6a','f9ad6a','f9ad6a','f9ad6a','f9ad6a',
+                                           'f9e07f','f9e07f','f9e07f','f9e07f','f9e07f',
+                                           '43978d','43978d','43978d','43978d','43978d','43978d',
+                                           '264d59','264d59','264d59','264d59','264d59','264d59']},
+    legend: [{'1-4 years': 'd46c4e'},{'5-9 years': 'f9ad6a'},{'10-14 years': 'f9e07f'},{'15-20 years': '43978d'},{'21-26 years': '264d59'}],
+    defaultVisibility: false
+  },
+  'Longest Fire Free Interval': {
+    name: '2_LFFI',
+    visParams: {min: 1, max: 25, palette: ['ff0c00','ff0c00','ff0c00','ff0c00','ff0c00','ffd819','ffd819','ffd819','ffd819','ffd819',
+                                           '9cffbb','9cffbb','9cffbb','9cffbb','9cffbb','00dcff','00dcff','00dcff','00dcff','00dcff',
+                                           '6e00ff','6e00ff','6e00ff','6e00ff','6e00ff'
+                                           ]},
+    legend: [{'1-5 years': 'ff0c00'},{'6-10 years': 'ffd819'},{'11-15 years': '9cffbb'},{'16-20 years': '00dcff'},{'21-25 years': '6e00ff'}],
+    defaultVisibility: false
+  },
+  'Fire Frequency': {
+    name: '3_FRQ',
+    visParams: {min: 1, max: 26, palette: ['fffad3','ffd8a8','ffd8a8','ffa344','ffa344','ffa344','ff0000','ff0000','ff0000','a90000','a90000',
+    'a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000']},
+    legend: [{'1 fire': 'fffad3'},{'2-3 fires': 'ffd8a8'},{'4-6 fires': 'ffa344'},{'7-9 fires': 'ff0000'},{'10-26 fires': 'a90000'}],
+    defaultVisibility: false
+  },
+  'Burned Area 1994': {
+    name: '4_1994',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 1994': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 1995': {
+    name: '5_1995',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 1995': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 1996': {
+    name: '6_1996',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 1996': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 1997': {
+    name: '7_1997',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 1997': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 1998': {
+    name: '8_1998',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 1998': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 1999': {
+    name: '9_1999',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 1999': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2000': {
+    name: '10_2000',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2000': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2001': {
+    name: '11_2001',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2001': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2002': {
+    name: '12_2002',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2002': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2003': {
+    name: '13_2003',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2003': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2004': {
+    name: '14_2004',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2004': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2005': {
+    name: '15_2005',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2005': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2006': {
+    name: '16_2006',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2006': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2007': {
+    name: '17_2007',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2007': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2008': {
+    name: '18_2008',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2008': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2009': {
+    name: '19_2009',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2009': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2010': {
+    name: '20_2010',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2010': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2011': {
+    name: '21_2011',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2011': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2012': {
+    name: '22_2012',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2012': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2013': {
+    name: '23_2013',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2013': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2014': {
+    name: '24_2014',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2014': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2015': {
+    name: '25_2015',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2015': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2016': {
+    name: '26_2016',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2016': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2017': {
+    name: '27_2017',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2017': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2018': {
+    name: '28_2018',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2018': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2019': {
+    name: '29_2019',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2019': 'ff0000'}],
+    defaultVisibility: false
+  },
+  'National Land Cover Database': {
+    name: '30_landcover',
+    visParams: {min: 0, max: 95, palette: 
+   ['000000','000000','000000','000000','000000','000000','000000','000000','000000','000000','000000','466b9f',
+    'd1def8','000000','000000','000000','000000','000000','000000','000000','000000','dec5c5','d99282','eb0000','ab0000','000000',
+    '000000','000000','000000','000000','000000','b3ac9f','000000','000000','000000','000000','000000','000000','000000','000000',
+    '000000','68ab5f','1c5f2c','b5c58f','000000','000000','000000','000000','000000','000000','000000','af963c','ccb879','000000',
+    '000000','000000','000000','000000','000000','000000','000000','000000','000000','000000','000000','000000','000000','000000',
+    '000000','000000','000000','dfdfc2','d1d182','a3cc51','82ba9e','000000','000000','000000','000000','000000','000000','dcd939',
+    'ab6c28','000000','000000','000000','000000','000000','000000','000000','b8d9eb','000000','000000','000000','000000','6c9fb8']},
+    legend: [{'Open water': '466b9f'},{'Perennial ice/snow': 'd1def8'},{'Developed, open space': 'dec5c5'},{'Developed, low intensity': 'd99282'},
+             {'Developed, medium intensity': 'eb0000'},{'Developed, high intensity': 'ab0000'},{'Barren land (rock/sand/clay)': 'b3ac9f'},
+             {'Deciduous forest': '68ab5f'},{'Evergreen forest': '1c5f2c'},{'Mixed forest': 'b5c58f'},{'Dwarf scrub': 'af963c'},
+             {'Shrib/scrub': 'ccb879'},{'Grassland/herbaceous': 'dfdfc2'},{'Sedge/herbaceuous': 'd1d182'},{'Lichens': 'a3cc51'},{'Moss': '82ba9e'},
+             {'Pasture/hay': 'dcd939'},{'Cultivated crops': 'ab6c28'},{'Woody wetlands': 'b8d9eb'},{'Emergent herbaceous wetlands': '6c9fb8'},],
+    defaultVisibility: false
+  }
+};
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// MAP PANEL CONFIGURATION
+
+// CREATE A MAP PANEL
+var mapPanel = ui.Map();
+
+// ADD THE MAP PANEL TO THE INTERFACE
+ui.root.widgets().reset([mapPanel]);
+ui.root.setLayout(ui.Panel.Layout.flow('horizontal'));
+
+// SET THE INITIAL BACKGROUND MAP
+mapPanel.setOptions('HYBRID');
+
+// SET THE CURSOR TYPE
+mapPanel.style().set('cursor', 'crosshair');
+
+// SET TRUE/FALSE FOR DEFAULT UI FUNCTIONALITY
+mapPanel.setControlVisibility({all: true, zoomControl: true, mapTypeControl: true});
+
+// CENTER THE MAP
+var defaultLocation = locationDict['Southeast'];
+mapPanel.setCenter(defaultLocation.lon, defaultLocation.lat, defaultLocation.zoom);
+
+// CREATE A HIDDEN CHART PANEL FOR TIME SERIES ANLYSIS
+var chartPanel1 = ui.Panel({style: {height: '280px', width: '600px', position: 'bottom-right', shown: false}});
+var Close = ui.Button('Close', function() {chartPanel1.style().set({shown: false});});
+chartPanel1.add(Close)
+
+// ADD THE CHART PANEL TO THE MAP
+mapPanel.add(chartPanel1)
+
+// ADD A HIDDEN IMAGE TO THE MAP TO HOLD A PLACE FOR NAIP IMAGERY
+mapPanel.addLayer(NAIP_2005, {}, 'NAIP Reference Image', false)
+
+// ADD FIRE HISTORY LAYERS TO MAP
+var opacityChangingLayers = []
+for (var key in layerProperties) {
+  var layer = layerProperties[key];
+  var image = FHMLayer.select(layer.name).visualize(layer.visParams);
+  var mapLayer = ui.Map.Layer(image, {}, key, layer.defaultVisibility);
+  mapPanel.add(mapLayer)
+  opacityChangingLayers.push(mapLayer);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// FUNCTION TO ADD NAIP IMAGE SELECTION WIDGET TO MAP
+function addLayerSelector(mapToChange, defaultValue, position) {
+  var label = ui.Label('View NAIP Imagery');
+  // UPDATE MAP WITH SELECTED NAIP IMAGE
+  function updateMap(selection) {
+    mapToChange.layers().set(0, ui.Map.Layer(naip_images[selection], {}, 'NAIP Reference Image'));
+  }
+  // DEFINE SELECTION DROP-DOWN THAT RESPONDS TO SELECTED YEAR
+  var select = ui.Select({items: Object.keys(naip_images), onChange: updateMap});
+  select.setValue(Object.keys(naip_images)[defaultValue], false);
+  // DEFINE THE LAYER SELECTION PANEL
+  var controlPanel = ui.Panel({widgets: [label, select], style: {position: position}});
+  // ADD THE LAYER SELECTION PANEL TO THE MAP
+  mapToChange.add(controlPanel);
+}
+
+// APPLY THE FUNCTION, ADD THE NAIP SELECTOR TO THE MAP
+var NAIPSelector = addLayerSelector(mapPanel, 0, 'top-left');
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// TOOL PANEL CONFIGURATION
+
+// DEFINE HEADER AND TEXT LABELS FOR THE TOOL PANEL
+var header = ui.Label('DRAFT: CONUS Fire History Metrics Viewer', {fontSize: '24px', color: 'red'});
+var text = ui.Label('A user friendly way to visualize satellite derived Fire History Metrics across the Continental US',{fontSize: '11px'});
+
+// CREATE THE TOOL PANEL
+var toolPanel = ui.Panel({
+  widgets : ([header,text]),
+  layout: ui.Panel.Layout.flow('vertical'),
+  style: {width: '315px', position: 'bottom-left'}
+});
+// Default
+ui.root.widgets().add(toolPanel);
+
+// CREATE A HYPERLINK TO AN EXTERANAL REFERENCE
+var link = ui.Label('Science paper by Hawbaker et al. 2020', {}, 'https://www.sciencedirect.com/science/article/pii/S0034425720301711');
+var linkPanel = ui.Panel([ui.Label('For more information about the source data', {fontWeight: 'bold'}), link]);
+toolPanel.add(linkPanel);
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// CREATE 'SELECT LAYER' LABEL FOR TOOL PANEL
+toolPanel.add(ui.Label('Select Layer', {'font-size': '24px'}));
+
+// DEFINE VARIABLES THAT WILL BE USED IN THE LAYER SELECTION 
+var selectItems = Object.keys(layerProperties);
+var layerSelect
+
+// DEFINE THE PULL DOWN MENU - CHANGING THE LAYER WILL ALSO CHANGE THE LEGEND
+var layerSelect = ui.Select({
+  items: selectItems,
+  value: selectItems[0],
+  onChange: function(selected) {
+    opacityChangingLayers.forEach(function(element, index) {
+      element.setShown(selected == element.getName());
+    });
+    setLegend(layerProperties[selected].legend);
+  }
+});
+
+// ADD THE LAYER SELECTION WIDGET TO THE TOOL PANEL
+toolPanel.add(layerSelect);
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// CREATE A PANEL FOR THE LEGEND TITLE
+var legendPanel = ui.Panel({style:{fontWeight: 'bold', fontSize: '10px', margin: '0 0 0 8px', padding: '0'}});
+var legendTitle = ui.Label('Legend',{fontWeight: 'bold', fontSize: '10px', margin: '0 0 4px 0', padding: '0'});
+legendPanel.add(legendTitle);
+toolPanel.add(legendPanel);
+
+// CREATE A PANEL FOR THE LEGEND ITSELF
+var keyPanel = ui.Panel();
+legendPanel.add(keyPanel);
+
+// FUNCTION TO INTERACTIVELY SET LEGEND
+function setLegend(legend) {
+  // LOOP THRoUGH ALL THE ITEMS IN A LAYER'S KEY PROPERTY, CREATES THE ITEM, AND ADDS IT TO THE KEY PANEL
+  keyPanel.clear();
+  for (var i = 0; i < legend.length; i++) {
+    var item = legend[i];
+    var name = Object.keys(item)[0];
+    var color = item[name];
+    var colorBox = ui.Label('', {
+      backgroundColor: color,
+      // USE PADDING TO GIVE THE BOX HEIGHT AND WIDTH
+      padding: '8px',
+      margin: '0'
+    });
+    // CREATE THE LABEL WITH THE DESCRIPTION TEXT
+    var description = ui.Label(name, {margin: '0 0 4px 6px'});
+    keyPanel.add(ui.Panel([colorBox, description], ui.Panel.Layout.Flow('horizontal')));
+  }
+}
+
+// SET THE INITIAL LEGEND
+setLegend(layerProperties[layerSelect.getValue()].legend);
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// CREATE VISIBILITY CHECKBOX AND OPACITY SLIDER
+// IF THE CHECKBOX IS CLICKED OFF, LAYER SELECTION AND VISUALIZATION ARE DISABLED
+var checkbox = ui.Checkbox({
+  label: 'Opacity',
+  value: true,
+  onChange: function(value) {
+    var selected = layerSelect.getValue();
+    // SET RASTER LAYERS TO HIDDEN
+    opacityChangingLayers.forEach(function(element, index) {
+      element.setShown(selected == element.getName() ? value : false);
+    });
+  // DISABLE SET LAYER
+    layerSelect.setDisabled(!value);
+  }
+});
+
+// CREATE AN OPACITY SLIDER
+var opacitySlider = ui.Slider({
+  min: 0,
+  max: 1,
+  value: 1,
+  step: 0.01,
+});
+
+// FUNCTION THAT SETS LAYER OPACITY BASED ON USER INPUT FROM SLIDER
+opacitySlider.onSlide(function(value) {
+  opacityChangingLayers.forEach(function(element) {
+    element.setOpacity(value);
+  });
+});
+
+// ADD THE CHECKBOX AND OPACITY SLIDER TO THE TOOL PANEL
+var viewPanel = ui.Panel([checkbox, opacitySlider], ui.Panel.Layout.Flow('horizontal'));
+toolPanel.add(viewPanel);
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// RENDER BOUNDARIES SECTION
+toolPanel.add(ui.Label('Render Boundaries', {'font-size': '24px'}));
+
+var renderButton1 = ui.Button({
+  label: 'Render Public Lands Boundaries',
+//  value: false,
+  onClick: function(value) {
+    mapPanel.addLayer(PublicLands_outline, {palette: '000000'}, 'Public Lands'); 
+  }
+});
+var renderButton2 = ui.Button({
+  label: 'Render LIT Boundaries',
+//  value: false,
+  onClick: function(value) {
+    mapPanel.addLayer(LIT_outline, {palette: '000000'}, 'LIT Boundaries'); 
+  }
+});
+
+toolPanel.add(renderButton1);
+toolPanel.add(renderButton2);
+
+// RENDER FIRMS ACTIVE FIRE SLIDER
+toolPanel.add(ui.Label('MODIS Active Fire', {'font-size': '24px'}));
+
+var renderButton = ui.Button({
+  label: 'Render MODIS Active Fire Data Slider',
+//  value: false,
+  onClick: function(value) {
+    SliderPanel.style().set({shown: true});
+  }
+});
+
+toolPanel.add(renderButton);
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// VISIT PUBLIC LANDS SECTION 
+// FUNCTION THAT ZOOMS TO SELECTED LAND, RENDERS BOUNDARY, AND RENDERS A TIME SERIES CHART
+var select = ui.Select({
+  items: PublicLandNames.getInfo(),
+  placeholder: ('Choose Area of Interest'),
+  style: {width: '290px'},
+  onChange: function(keys) {
+    
+    if (!chartPanel1.style().get('shown')) {
+    chartPanel1.style().set('shown', true);
+    }
+    
+    var selection = ee.Feature(PublicLands.filter(ee.Filter.eq('GNIS_Name1', keys)).first());
+    var shown = true; // true or false, 1 or 0 
+    var opacity = 0.6; // number [0-1]
+    var Land_Bounds = ui.Map.Layer(selection, {color: 'black'}, 'Public Land Selection', shown, opacity)
+    mapPanel.layers().set(34, Land_Bounds, {}, 'Public Land Selction')
+    mapPanel.centerObject(selection, 10)
+    
+    var options1 = {
+    title: 'Fire History for ' + keys,
+    fontSize: 12,
+    hAxis: {},
+    vAxis: {title: 'Burned Area (Acres)', viewWindow: {min: 0}},
+    legend: {position: 'none'},
+    };
+    
+    var chart1 = ui.Chart.image.series(AcreCollection, selection, ee.Reducer.sum(), 30).setChartType('ColumnChart').setOptions(options1);
+    chartPanel1.widgets().reset([chart1]);
+    chartPanel1.add(Close)
+  }
+});
+
+var locationPanel = ui.Panel([
+  ui.Label('Visit Public Lands', {'font-size': '24px'}), select
+]);
+toolPanel.add(locationPanel);
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// THIS SECTION ALLOWS FOR GEE ASSETS TO BE IMPORTED INTO THE APPLICATION
+toolPanel.add(ui.Label('Import Boundaries', {'font-size': '24px'}));
+var perim_id = ui.Textbox('asset id', 'Paste Asset ID Here')
+perim_id.style().set("width", "270px")
+toolPanel.add(perim_id)
+
+// BUTTON TO ACTIVATE ADD ASSET TO MAP
+var load_button = ui.Button({
+label: 'Load Fire Perimeter Asset',
+style: {width:"270px"},
+onClick: function(asset_id) {
+  add_fire_perimeter(String(perim_id.getValue()));
+  }
+});
+toolPanel.add(load_button)
+
+// FUNCTION TO ADD ASSET TO MAP
+var add_fire_perimeter = function(asset_id){
+  var fire_perimeter = ee.FeatureCollection(asset_id);
+  mapPanel.centerObject(fire_perimeter, 9);
+  // CONVERT GEOMETRY TO OUTLINE
+  var fp_outline = ee.Image().paint({featureCollection: fire_perimeter, width: 3});
+  // ADD ASSET TO MAP
+  fp_outline = ui.Map.Layer(fp_outline, {'palette': 'magenta'});
+  mapPanel.layers().set(0, fp_outline);
+};
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// PIXEL INSPECTOR SECTION
+toolPanel.add(ui.Label('Pixel Inspector', {'font-size': '24px'}));
+toolPanel.add(ui.Label('Click individual pixels to inspect their Fire History values'));
+
+// CREATE THE INSPECTOR PANEL AND ADD IT TO THE MAP, INITIALLY HIDDEN
+var inspector = ui.Panel({style: {shown: false}});
+mapPanel.add(inspector);
+
+// ON CLICK FUNCTION THAT POPULATED AND SHOWS THE INSPECTOR PANEL WITH FIRE HISTORY METRICS FOR THE SELECTED PIXEL
+mapPanel.onClick(function(coords) {
+  // GATHER THE IMAGE BANDS INTO A SINGLE IMAGE THAT WE CAN ASYNCHRONOUSLY SAMPLE
+  var point = ee.Geometry.Point(coords.lon, coords.lat);
+  var sample = ee.Image.cat(YLB, TSPF, LFFI, FRQ)
+      .unmask(0).sample(point, 30).first().toDictionary();
+  sample.evaluate(function(values) {
+      inspector.clear();
+      inspector.add(ui.Label('Fire Frequency: ' + values.FRQ + ' fires/cell'));
+      inspector.add(ui.Label('Time Since Previous Fire: ' + values.TSPF + ' years'));
+      inspector.add(ui.Label('Year Last Burned: ' + values.YLB));
+      inspector.add(ui.Label('Longest Fire Free Interval: ' + values.LFFI + ' years'));
+      inspector.add(ui.Button('Close', function() {
+      inspector.style().set({shown: false});
+    }));
+    inspector.style().set({shown: true});
+  });
+});
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// LOGO
+var logo = ee.Image("users/esimonson/Logos/Tall_Timbers_Logo");
+var branding = ui.Thumbnail({image:logo,params:{bands:['b1','b2','b3'],min:0,max:255},style:{width:'270px',height:'130px'}});
+
+toolPanel.add(ui.Label('Please contact Eli Simonson (esimonson@talltimbers.org) if you have any questions about this application', {fontSize: '11px'}))
+toolPanel.add(branding)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// MODIS ACTIVE FIRE SLIDER SECTION
+var layers = []
+var layer
+
+// FUNCTION TO RENDER FIRMS DATA BASED ON USER SELECTION FROM SLIDER
+var showLayer = function(year) {
+  var date = ee.Date.fromYMD(year, 1, 1);
+  var dateRange = ee.DateRange(date, date.advance(1, 'year'));
+  var image = FIRMSClipped.filterDate(dateRange).first();
+  var layer = ui.Map.Layer(image, firmsVis, "MODIS Active Fire",1);
+  mapPanel.layers().set(32, layer, {}, 'MODIS Active Fire')
+  layers.push(layer)
+};
+
+// CREATE THE FIRMS SLIDER
+var label = ui.Label('Select Year');
+var slider = ui.Slider({
+  min: 2000,
+  max: 2019,
+  step: 1,
+  onChange: showLayer,
+  style: {stretch: 'horizontal'}
+});
+
+// CREATE AN OPACITY SLIDER FOR THE FIRMS LAYER
+var opacitySlider = ui.Slider({
+  min: 0,
+  max: 1,
+  value: 1,
+  step: 0.01,
+});
+
+var label2 = ui.Label('Set Opacity');
+
+// SET THE OPACITY SLIDER TO RESPOND ONLY TO THE FIRMS LAYER
+opacitySlider.onSlide(function(value) {
+  layers.forEach(function(element) {
+    element.setOpacity(value);
+  });
+});
+
+// CREATE THE PANEL WITH ALL FIRMS LABELS AND WIDGETS
+var SliderPanel = ui.Panel({
+  widgets: [label, slider, label2, opacitySlider],
+  layout: ui.Panel.Layout.flow('horizontal'),
+  style: {
+    position: 'bottom-center',
+    shown: false,
+    padding: '7px'
+  }
+});
+
+// FUNCTION THAT SETS THE FIRMS SLIDER AND LAYER TO HIDDEN WHEN THE PANEL IS CLOSED
+var Close2 = ui.Button('Close', function() {
+      SliderPanel.style().set({shown: false});
+      mapPanel.layers().set(32, layers[layer], {}, '', false);
+});
+SliderPanel.add(Close2)
+
+// ADD THE FIRMS PANEL TO THE MAP
+mapPanel.add(SliderPanel, false);
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// SOUTHEAST WILDFIRES SECTION
+var nameProperty = 'FireYrStr'
+var CONUS_Wildfire_Years = ee.List(CONUS_Wildfires.aggregate_array(nameProperty)).distinct();
+
+// FUNCTION THAT ADDS WILDFIRE POLYGONS TO THE MAP BASED ON USER SELECTION
+var select_wildfire = ui.Select({
+  items: CONUS_Wildfire_Years.getInfo(),
+  placeholder: ('Select Year'),
+  onChange: function(keys) {
+    var selection = CONUS_Wildfires.filterMetadata('FireYrStr', 'equals', keys).union()
+    var shown = true;
+    var opacity = 0.7; 
+    var selection_lyr = ui.Map.Layer(selection, {color: 'black'}, 'CONUS Wildfire', shown, opacity)
+    mapPanel.layers().set(33, selection_lyr);
+  }
+});
+
+// CREATE A PANEL TO SELECT WILDFIRE DATA FROM
+var wildfirePanel = ui.Panel({widgets: [ui.Label('View Wildfire Polygons'), select_wildfire], style: {position: 'top-right'}});
+
+// ADD THE WILDFIRE PANEL TO THE MAP
+mapPanel.add(wildfirePanel)
+
+// ADD PLACEHOLDERS FOR DATA THAT WILL BE LOADED INTO MAP PANEL
+mapPanel.addLayer(NoData,{},'MODIS Active Fire')
+mapPanel.addLayer(NoData,{},'CONUS Wildfire')
+mapPanel.addLayer(NoData,{},'Public Land Selection')
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

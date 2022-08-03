@@ -1,0 +1,72 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var LLL = ee.FeatureCollection("users/esimonson/AOIs/Longleaf_Legacy"),
+    TT = ee.FeatureCollection("users/esimonson/AOIs/TallTimbersResearchStation"),
+    LFFI_Viz = {"opacity":1,"bands":["counter"],"max":25,"palette":["ff0202","ff7600","fff700","7aff00","00ffe7","001fff","5a06ff"]},
+    collection = ee.ImageCollection("users/esimonson/Fire_History_CONUS/BA_Collection_CONUS");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// REFERENCE
+// Center the map to an area of interest (ex. Tall Timbers)
+Map.setCenter(-84.20875, 30.6565, 12)
+
+// Call in NAIP imagery for reference
+var NAIP = ee.ImageCollection('USDA/NAIP/DOQQ')
+  .filterBounds(LLL)
+  .filterDate('2017-01-01','2017-11-30')
+  .mosaic();
+var visParams = {bands:['R', 'G', 'B']}
+Map.addLayer(NAIP, visParams, 'High Resolution Reference Imagery');
+
+// DEFINE TIME RANGE
+var startyear = 1994;
+var endyear = 2019;
+var startmonth = 1;
+var endmonth = 12;
+
+// SET DATE IN EE DATE FORMAT
+var startdate = ee.Date.fromYMD(startyear,startmonth,1);
+var enddate = ee.Date.fromYMD(endyear,endmonth,31);
+
+// FILTER DATA
+var datain_t = collection.filterDate(startdate, enddate)
+  .filter(ee.Filter.calendarRange(startmonth,endmonth, 'month'))
+  .select('b1').map(function(img){
+    return img.addBands(ee.Image.constant(0).uint8().rename('counter'));
+  })
+  .sort('system:time_start');
+
+// // START 
+var dataset = datain_t
+.sort('system:time_start:');
+print(dataset,"dataset");
+
+var FIRE_BIN = 1; 
+
+function FireFreeInterval(img, list){
+  // get previous image
+  var prev = ee.Image(ee.List(list).get(-1));
+  // find areas less than FIRE_BIN threshold (gt==0, lt==1)
+  var FireFree = img.select('b1').lt(FIRE_BIN);
+  // add previous day counter to today's counter
+  var accum = prev.select('counter').add(FireFree).rename('counter');
+  // create a result image for iteration
+  // FireFree < thresh will equall the accumulation of counters
+  // otherwise it will equal zero
+  var out = img.select('b1').addBands(
+        img.select('counter').where(FireFree.eq(1),accum)
+      ).uint8();
+  return ee.List(list).add(out);
+}
+
+// create first image for iteration
+var first = ee.List([ee.Image(dataset.first())]);
+
+// apply dry speall iteration function
+var LFFI = ee.ImageCollection.fromImages(
+    dataset.iterate(FireFreeInterval,first)
+).max(); // get the max value
+
+var LFFI_Mask = LFFI.lt(26)
+var LFFI_Masked = LFFI.updateMask(LFFI_Mask)
+
+// display results
+Map.addLayer(LFFI_Masked.select('counter').clip(TT), LFFI_Viz,'Longest Fire Free Interval');
