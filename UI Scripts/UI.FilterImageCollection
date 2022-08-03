@@ -1,0 +1,78 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geo = ee.FeatureCollection("users/esimonson/AOIs/Longleaf_Legacy"),
+    geometry = /* color: #23cba7 */ee.Geometry.MultiPoint(),
+    LLL_FireHistory = ee.ImageCollection("users/esimonson/FireHistory/LLL_Landsat_BA");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// DATA PREPROCESSING
+
+// CALCULATE FIRE FREQUENCY WITH BINARY FIRE LAYERS
+var FireFrequency = LLL_FireHistory.sum()
+// CREATE A MASK FOR NULL (0) VALUES
+var FireMask = FireFrequency.eq(0)
+// APPLY THE MASK TO THE FIRE FREQUENCY LAYER
+var FF = FireFrequency.updateMask(FireFrequency)
+// REFERENCE
+// Center the map to an area of interest (ex. Tall Timbers)
+Map.setCenter(-84.20875, 30.6565, 12)
+// Call in NAIP imagery for reference
+var NAIP = ee.ImageCollection('USDA/NAIP/DOQQ')
+  .filterBounds(geo)
+  .filterDate('2017-01-01','2017-11-30')
+  .mosaic();
+var visParams = {bands:['R', 'G', 'B']}
+Map.addLayer(NAIP, visParams, 'High Resolution Reference Imagery');
+
+var FF_new = LLL_FireHistory.filter(ee.Filter.calendarRange(2000, 2019, 'year'))
+print(FF_new)
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// SET UP FUNCTION TO FILTER AN IMAGE COLLECTION ON CLICK
+
+var startYr, endYr, ICfilter;
+ 
+//apply filters input in UI widget
+function applyFilters() {
+  // Set filter variables.
+  startYr = select_startYr.getValue();
+  if (startYr) startYr = ee.Number.parse(startYr);
+  endYr = select_endYr.getValue();
+  if (endYr) endYr = ee.Number.parse(endYr)
+  ICfilter = LLL_FireHistory.filter(ee.Filter.calendarRange(startYr,endYr,'year'))
+  print(ICfilter)
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/* Create UI Panels */
+var panel = ui.Panel({style: {width:'300px'}});
+ui.root.insert(0,panel);
+
+var header = ui.Label('Generate Custom Image Collection', {fontWeight: 'bold', fontSize: '14px', margin: '10px 5px'});
+
+panel.add(header)
+
+/* 2. Select Year and Duration of Time Series */
+var textboxStyle = ui.Textbox({style: {width:'8px'}});
+var select_startYr = ui.Textbox({placeholder: 'Start Year',  value: '2010',
+  style: {width: '100px'}}); //defaults to 2010
+var select_endYr = ui.Textbox({placeholder: 'End Year',  value: '2019',
+  style: {width: '100px'}}); //defaults to 2019
+panel.add(ui.Label('2. Select Start and End Year for Time Series'));
+var datasetRange_label = ui.Label('From 1994-2019',
+  {margin: '0 0 0 10px',fontSize: '12px',color: 'gray'});
+var durRange_label = ui.Label('Recommend 5-10 years',
+  {margin: '0 0 0 18px',fontSize: '12px',color: 'gray'});
+
+var durRange_subtext = ui.Panel([datasetRange_label, durRange_label],
+  ui.Panel.Layout.flow('horizontal'));
+var row2 = ui.Panel([select_startYr, select_endYr],
+  ui.Panel.Layout.flow('horizontal'));
+panel.add(durRange_subtext).add(row2);
+
+/* 3. Calculate */
+var runButton = ui.Button('Print Image Collection to Console', applyFilters);
+panel.add(ui.Label('3. Create time series')).add(runButton);
+
+
+
+

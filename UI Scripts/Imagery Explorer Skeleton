@@ -1,0 +1,254 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var TT = ee.FeatureCollection("users/esimonson/AOIs/TallTimbersResearchStation");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  /* The introduction section. */
+var intro = {
+  panel: ui.Panel([
+    ui.Label({
+      value: 'Landsat 8 Explorer',
+      style: {fontWeight: 'bold', fontSize: '24px', margin: '10px 5px'}
+      }),
+      ui.Label('This app allows you to filter and export images ' +
+               'from the Landsat 8 collection.')
+    ])
+  };
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  
+// Creates the app constants
+//var applyFilters, refreshMapLayer
+var COLLECTION_ID = 'LANDSAT/LC08/C01/T1_TOA';
+var SECTION_STYLE = {margin: '20px 0 0 0'};
+var HELPER_TEXT_STYLE = {
+      margin: '8px 0 -3px 8px',
+      fontSize: '12px',
+      color: 'gray'
+  };
+//var IMAGE_COUNT_LIMIT = 100;
+var VIS_OPTIONS = {
+    'False color (B7/B6/B4)': {
+      description: 'Vegetation is shades of red, urban areas are ' +
+                   'cyan blue, and soils are browns.',
+      visParams: {gamma: 1.3, min: 0, max: 0.3, bands: ['B7', 'B6', 'B4']}
+    },
+    'Natural color (B4/B3/B2)': {
+      description: 'Ground features appear in colors similar to their ' +
+                   'appearance to the human visual system.',
+      visParams: {gamma: 1.3, min: 0, max: 0.3, bands: ['B4', 'B3', 'B2']}
+    },
+    'Burn Scar (B7/B5/B4)': {
+      description: 'Used in Fire Detection, ' +
+                   'Burns Scars Appear Dark Red/Brown.',
+      visParams: {gamma: 1.3, min: 0, max: 0.5, bands: ['B7', 'B5', 'B4']}
+    }
+  };
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// The collection filter controls 
+var filters = {
+  mapCenter: ui.Checkbox({label: 'Filter to map center', value: true}),
+  startDate: ui.Textbox('YYYY-MM-DD', '2014-01-01'),
+  endDate: ui.Textbox('YYYY-MM-DD', '2020-07-01'),
+  applyButton: ui.Button('Apply filters', applyFilters),
+  loadingLabel: ui.Label({
+    value: 'Loading...',
+    style: {stretch: 'vertical', color: 'gray', shown: false}
+  })
+};
+
+// The panel for the filter control widgets 
+  var filtersPanel = ui.Panel({
+    widgets: [
+      ui.Label('1) Select filters', {fontWeight: 'bold'}),
+      ui.Label('Start date', HELPER_TEXT_STYLE), filters.startDate,
+      ui.Label('End date', HELPER_TEXT_STYLE), filters.endDate,
+      filters.mapCenter,
+      ui.Panel([
+        filters.applyButton,
+        filters.loadingLabel
+      ], ui.Panel.Layout.flow('horizontal'))
+    ],
+    style: SECTION_STYLE
+  });
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// The image picker section
+  var picker = {
+    // Create a select with a function that reacts to the "change" event.
+    select: ui.Select({
+      placeholder: 'Select an image ID',
+      onChange: refreshMapLayer
+    }),
+    // Create a button that centers the map on a given object.
+    centerButton: ui.Button('Center on map', function() {
+      Map.centerObject(Map.layers().get(0).get('eeObject'));
+    })
+  };
+  
+// The panel for the picker section with corresponding widgets. */
+  var pickerPanel = ui.Panel({
+    widgets: [
+      ui.Label('2) Select an image', {fontWeight: 'bold'}),
+      ui.Panel([
+        picker.select,
+        picker.centerButton
+      ], ui.Panel.Layout.flow('horizontal'))
+    ],
+    style: SECTION_STYLE
+  });
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//  The visualization section 
+var vis = {
+  label: ui.Label(),
+  // Create a select with a function that reacts to the "change" event.
+  select: ui.Select({
+    items: Object.keys(VIS_OPTIONS),
+    onChange: function() {
+      // Update the label's value with the select's description.
+      var option = VIS_OPTIONS[vis.select.getValue()];
+      vis.label.setValue(option.description);
+      // Refresh the map layer.
+      refreshMapLayer();
+      }
+    })
+  };
+  
+// The panel for the visualization section with corresponding widgets. */
+  var visPanel = ui.Panel({
+    widgets: [
+      ui.Label('3) Select a visualization', {fontWeight: 'bold'}),
+      vis.select,
+      vis.label
+    ],
+    style: SECTION_STYLE
+  });
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//   // Default the select to the first value.
+//   vis.select.setValue(vis.select.items().get(0));
+
+// // Creates the app helper functions
+
+var setLoadingMode = function(enabled) {
+    // Set the loading label visibility to the enabled mode.
+    filters.loadingLabel.style().set('shown', enabled);
+    // Set each of the widgets to the given enabled mode.
+    var loadDependentWidgets = [
+      vis.select,
+      filters.startDate,
+      filters.endDate,
+      filters.applyButton,
+      filters.mapCenter,
+      picker.select,
+      picker.centerButton,
+      //export.button
+    ];
+    loadDependentWidgets.forEach(function(widget) {
+      widget.setDisabled(enabled);
+    });
+  };
+
+//   /** Applies the selection filters currently selected in the UI. */
+  var applyFilters = function() {
+    setLoadingMode(true);
+    var filtered = ee.ImageCollection(COLLECTION_ID);
+
+    // Filter bounds to the map if the checkbox is marked.
+    if (filters.mapCenter.getValue()) {
+      filtered = filtered.filterBounds(Map.getCenter());
+    }
+
+    // Set filter variables.
+    var start = filters.startDate.getValue();
+    if (start) start = ee.Date(start);
+    var end = filters.endDate.getValue();
+    if (end) end = ee.Date(end);
+    if (start) filtered = filtered.filterDate(start, end);
+
+    // Get the list of computed ids.
+    var computedIds = filtered
+        .limit(IMAGE_COUNT_LIMIT)
+        .reduceColumns(ee.Reducer.toList(), ['system:index'])
+        .get('list');
+
+    computedIds.evaluate(function(ids) {
+      // Update the image picker with the given list of ids.
+      setLoadingMode(false);
+      picker.select.items().reset(ids);
+      // Default the image picker to the first id.
+      picker.select.setValue(picker.select.items().get(0));
+    });
+  };
+
+//   /** Refreshes the current map layer based on the UI widget states. */
+  var refreshMapLayer = function() {
+    Map.clear();
+    var imageId = picker.select.getValue();
+    if (imageId) {
+      // If an image id is found, create an image.
+      var image = ee.Image(COLLECTION_ID + '/' + imageId);
+      // Add the image to the map with the corresponding visualization options.
+      var visOption = VIS_OPTIONS[vis.select.getValue()];
+      Map.addLayer(image, visOption.visParams, imageId);
+    }
+  };
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// ADD PANELS TO USER INTERFACE
+var main = ui.Panel({
+  widgets: [
+      intro.panel,
+      filtersPanel,
+      pickerPanel,
+      visPanel
+  ],
+  style: {width: '320px', padding: '8px'}
+});
+Map.centerObject(TT);
+ui.root.insert(0, main);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// //};
+
+// /** Creates the application interface. */
+
+
+//   var main = ui.Panel({
+//     widgets: [
+//       intro.panel,
+//       filtersPanel,
+//       pickerPanel,
+//       visPanel,
+//       //app.export.panel
+//     ],
+//     style: {width: '320px', padding: '8px'}
+//   });
+//   Map.centerObject(TT);
+//   ui.root.insert(0, main);
+//   applyFilters();
+

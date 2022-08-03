@@ -1,0 +1,206 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var Shrubs = /* color: #ffbb22 */ee.Geometry.MultiPoint(),
+    Herbaceous_vegetation = /* color: #ffff4c */ee.Geometry.MultiPoint(),
+    Cultivated_and_managed_vegetation = /* color: #f096ff */ee.Geometry.MultiPoint(),
+    Urban = /* color: #fa0000 */ee.Geometry.MultiPoint(),
+    Bare_soil = /* color: #b4b4b4 */ee.Geometry.MultiPoint(),
+    Snow_and_ice = /* color: #f0f0f0 */ee.Geometry.MultiPoint(),
+    Permanent_water_bodies = /* color: #0032c8 */ee.Geometry.MultiPoint(),
+    Herbaceous_wetland = /* color: #0096a0 */ee.Geometry.MultiPoint(),
+    Moss_and_lichen = /* color: #fae6a0 */ee.Geometry.MultiPoint(),
+    Forest = /* color: #006400 */ee.Geometry.MultiPoint(),
+    Ocean_or_seas = /* color: #000080 */ee.Geometry.MultiPoint();
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+/** Olga Danylo @author olha.danylo@gmail.com */
+
+var cglscol = ee.ImageCollection("COPERNICUS/Landcover/100m/Proba-V-C3/Global");
+
+
+// Select the year you want to visualise 
+var cgls = cglscol.filterDate('2018-01-01').first();
+// Select the discrete layer
+var discrete = cgls.select(['discrete_classification']);
+
+var valuesAll = discrete.get("discrete_classification_class_values");
+var valuesLevel2 = ee.List(
+  [1,1,2,3,4,5,6,7,8,9,10,10,10,10,10,10,10,10,10,10,10,10,11]);
+
+// change to your classes and values
+var layerName = 'COPERNICUS/Landcover/100m/Proba-V-C3'
+
+var image = discrete
+    .remap(valuesAll, valuesLevel2)
+    .rename("discrete_classification");
+    
+var classes = [
+  "Shrubs", 
+  "Herbaceous vegetation", 
+  "Cultivated and managed vegetation",
+  "Urban", 
+  "Bare soil", 
+  "Snow and ice", 
+  "Permanent water bodies", 
+  "Herbaceous wetland", 
+  "Moss and lichen",
+  "Forest", 
+  "Ocean or seas"
+];
+
+var palette = [
+  "FFBB22", 
+  "FFFF4C",
+  "F096FF",
+  "FA0000",
+  "B4B4B4",
+  "F0F0F0",
+  "0032C8",
+  "0096A0",
+  "FAE6A0",
+  "006400", 
+  "000080"
+];
+
+Map.addLayer(image, {palette:palette}, "Landcover", false);
+Map.centerObject(ee.Geometry.Point([104.7695828629367, -4.256374085583742]), 13)
+
+//////////////////////////////////////////////////////////////////////////////////
+//Landcover Legend
+///////////////////////////////////////////////////////////////////////////////
+
+var legend = ui.Panel({
+  style: {
+    position: 'bottom-right',
+    padding: '8px 15px'
+  }
+});
+
+// Create and add the legend title.
+var legendTitle = ui.Label({
+  value: layerName,
+  style: {
+    height: '10%',
+    width: '100%',
+    margin: 0,
+    textAlign: 'center',
+    fontSize: '24px',
+    backgroundColor: '444444',
+    color: 'white'
+  }
+});
+
+// Creates and styles 1 row of the legend.
+var makeRow = function(color, name) {
+  // Create the label that is actually the colored box.
+  var checkBox = ui.Checkbox({
+    label: "",
+    value:false,
+    style: {margin: '0 0 4px 6px'},
+    onChange: function(selected, object) {
+      legend.widgets().forEach(
+        function(element, index) {
+          var flag = (object == element.widgets().get(0));
+          element.widgets().get(0).setValue(flag, false);
+          if (flag) {
+            Map.drawingTools().setSelected(Map.drawingTools().layers().get(index));
+            Map.drawingTools({selected:"polygon"});
+            Map.drawingTools().draw();
+          }
+        });
+    },
+  });
+  
+  var colorBox = ui.Label({
+    style: {
+      backgroundColor: '#' + color,
+      // Use padding to give the box height and width.
+      padding: '8px',
+      margin: '0 0 4px 0',
+    }
+  });
+
+  // Create the label filled with the description text.
+  var description = ui.Label({
+    value: name,
+    style: {margin: '0 0 4px 6px'}
+  });
+
+  return ui.Panel({
+    widgets: [checkBox, colorBox, description],
+    layout: ui.Panel.Layout.Flow('horizontal')
+  });
+};
+
+Map.drawingTools().layers().reset();
+Map.drawingTools().setDrawModes(['polygon']);
+
+for (var i = 0; i < palette.length; i++) {
+  legend.add(makeRow(palette[i], classes[i]));
+  // in case there are any spaces in the name
+  var layerName = classes[i].split(' ').join('_');
+  var layer = ui.Map.GeometryLayer({
+    name: layerName,  
+    color: palette[i] 
+  });
+  Map.drawingTools().layers().add(layer);
+}
+
+Map.add(legend).add(legendTitle);
+
+var urlLabel = ui.Label({
+  value:'Download table', 
+  style: {position: 'top-left'}
+});
+
+var updateLink = function(url){
+  urlLabel.setValue('Download table').setUrl(url);
+  downloadTablePanel.widgets().reset([urlLabel]);
+};
+
+
+// merge all geometry layers for future download
+var getMergedFC = function() {
+  var layer = Map.drawingTools().toFeatureCollection("classId");
+  layer = layer.map(function (ft) {
+    return ft.set("className", ee.List(classes).get(ft.get("classId")))
+             .set("classId", ft.get("classId"));
+  });
+  return layer;
+}
+
+// update table link after every change of the geometry layers
+var updateTable = function() {
+      urlLabel.style().set("shown", true);
+      urlLabel.setValue("Loading...");
+      var today = new Date();
+      var date = today.getFullYear()+'-'+(today.getMonth()+1)+'-'+today.getDate();
+      var newfc = getMergedFC();    
+      var filename = "data_" + date;
+      newfc.getDownloadURL({
+        format:"json", 
+        selectors: [".geo", "className", "classId"], 
+        filename: filename,
+        callback: updateLink
+      });
+};
+
+Map.drawingTools().onDraw(updateTable);
+Map.drawingTools().onEdit(updateTable);
+Map.drawingTools().onErase(updateTable);
+
+var urlLabel = ui.Label({value:"", style: {shown: false, position: 'top-left'}});
+var downloadTablePanel = ui.Panel({widgets:[urlLabel], style: {position: 'top-left'}});
+
+Map.add(downloadTablePanel);
+
+
+// add a shortcut key for turning the layer on and off
+function handleQ() {
+  var layer = Map.layers().get(0);
+  layer.setShown(!layer.getShown());
+}
+ui.root.setKeyHandler(ui.Key.Q, handleQ);
+
+var qKeyLabel = ui.Label("Press 'Q' to show/hide the map");
+qKeyLabel.style().set("position", "bottom-left");
+Map.add(qKeyLabel);
+Map.setOptions("SATELLITE");

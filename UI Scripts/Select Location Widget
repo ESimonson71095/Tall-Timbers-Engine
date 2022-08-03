@@ -1,0 +1,114 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = 
+    /* color: #d63000 */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[-85.20244140625002, 30.982034292754978],
+          [-85.20244140625002, 29.61138176230118],
+          [-83.18095703125002, 29.61138176230118],
+          [-83.18095703125002, 30.982034292754978]]], null, false);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// DATA PRE PROCESSING
+
+// IMPORT US STATES
+var table = ee.FeatureCollection("TIGER/2018/States")
+var FL = table.filterMetadata('STUSPS', 'equals', 'CA')
+
+// EXTRACT STATE NAMES TO A VARIABLE
+var StateNames = table.aggregate_array('NAME').sort()
+print(StateNames)
+
+// ACTIVE FIRE SECTION
+// IMPORT MODIS ACTIVE FIRE TIME SERIES
+var FIRMS = ee.ImageCollection('FIRMS')
+  .select('T21')
+
+  // THIS SECTION CALCULATES A WEEKLY SUM IMAGE COLLECTION
+var startDate = ee.Date('2010-01-01')
+var endDate = ee.Date('2020-10-19')
+var dayOffsets = ee.List.sequence(
+  0, 
+  endDate.difference(startDate, 'days').subtract(1),
+  7 // Single day every week
+)
+var weeklyCount = ee.ImageCollection.fromImages(
+  dayOffsets.map(function(dayOffset) {
+    var start = startDate.advance(dayOffset, 'days')
+    var end = start.advance(1, 'week')
+    var year = start.get('year')
+    var dayOfYear = start.getRelative('day', 'year')
+    return FIRMS
+      .filterDate(start, end)
+      .select('T21')
+      .count()
+      .set('year', year)
+      .set('day_of_year', dayOfYear)
+      .set('system:time_start', start)
+  })  
+).filter(
+  // filter out empty images
+  ee.Filter.listContains('system:band_names', 'T21')
+)
+
+print(weeklyCount)
+// Define a chart with a a different series for each year in the forest region.
+var FIRMS_TimeSeries = ui.Chart.image.doySeriesByYear(
+    weeklyCount, 'T21', FL, ee.Reducer.count(), 1000);
+print(FIRMS_TimeSeries)
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// UI WIDGETS SECTION 
+
+//Create AOI selection widget that searches fusion table by array of names
+var select = ui.Select({
+  items: StateNames.getInfo(),
+  placeholder: ('Choose Area of Interest'),
+  style: {width: '290px'},
+  onChange: function(key) {
+    Map.clear(); //clears previous calculations from map upon new selection
+    var selection = ee.Feature(table.filter(ee.Filter.eq('NAME', key)).first());
+    Map.centerObject(selection); //centers map on Plantation selection
+    // show state
+    var layer = ui.Map.Layer(selection, {color:'blue'}, 'State');
+    Map.layers().set(0, layer); //adds Plantation selection to the map
+    //var conversion = ee.FeatureCollection(selection); //converts the Plantation selection into a feature collection for future analyses
+  }
+});
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// UI PANEL SECTION
+
+//Create master panel in which to arrange widgets
+var panel = ui.Panel({style: {width: '320px'}})
+    .add(ui.Label({
+    value: 'BETA: FIRMS Time Series Tool', //create title for whole UI
+    style: {fontWeight: 'bold', fontSize: '22px', color: '#228B22'}
+    })
+  );
+
+// //Create drop-down for State selection
+// var hcpbtn = ui.Panel({
+//   widgets: [select], //include select widget
+//   layout: ui.Panel.Layout.flow('vertical'),
+// });
+
+//Create labels for step one and include Plantation selection button  
+var stepone = ui.Panel({
+    widgets: [
+      ui.Label('1) Select Area of Interest', {fontWeight: 'bold'}), //title for Step 1
+      ui.Label('If your area of interest is not listed, contact support to get your area added.',
+        {fontSize: '12px'}),
+      ui.Label('Updating this selection will clear the map of all previous outputs.', {fontSize: '12px'}),
+      select, //adds HCP selection section
+    ],
+  });
+  
+//BEGIN call functions to create user interface//
+panel.add(stepone); //add step one to panel
+ui.root.add(panel); //add panel to root
+//END call functions to create user interface//

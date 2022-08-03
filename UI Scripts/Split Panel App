@@ -1,0 +1,98 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var landsat8 = ee.ImageCollection("LANDSAT/LC08/C01/T1_TOA"),
+    TT = ee.FeatureCollection("users/esimonson/AOIs/TallTimbersResearchStation");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Demonstrates before/after imagery comparison with a variety of dates.
+
+var L8_vizParams = {
+  bands: ['B7', 'B5', 'B4'],
+  min: 0,
+  max: 0.5,
+  gamma: [0.95, 1.1, 1]
+};
+
+/*
+ * Configure the imagery
+ */
+var addNBR = function(image) {
+  var nbr = image.normalizedDifference(['B5', 'B7']).rename('NBR');
+  return image.addBands(nbr);
+};
+
+// These Sentinel-1 images track the major flooding in Myanmar during the 2018
+// monsoon season: https://www.bbc.com/news/world-asia-44962585
+var images = {
+  '2018-05-10': getWeeklyLandsatComposite('2018-05-10'),
+  '2019-01-21': getWeeklyLandsatComposite('2019-01-21'),
+  '2019-03-10': getWeeklyLandsatComposite('2019-03-10'),
+  '2019-04-27': getWeeklyLandsatComposite('2019-04-27'),
+};
+
+// Composite the Sentinel-1 ImageCollection for 7 days (inclusive) after the
+// given date.
+function getWeeklyLandsatComposite(date) {
+  var date = ee.Date(date);
+  // Only include the VV polarization, for consistent compositing.
+  var landsat8 = ee.ImageCollection('LANDSAT/LC08/C01/T1_TOA')
+                      .filterDate(date, date.advance(1, 'week'))
+                      .filterBounds(TT)
+                      .map(addNBR)
+                      .select('B4', 'B5', 'B7')
+                      .mean()
+                      ;
+  return landsat8.visualize(L8_vizParams);
+}
+
+
+/*
+ * Set up the maps and control widgets
+ */
+
+// Create the left map, and have it display layer 0.
+var leftMap = ui.Map();
+leftMap.setControlVisibility(false);
+var leftSelector = addLayerSelector(leftMap, 0, 'top-left');
+
+// Create the right map, and have it display layer 1.
+var rightMap = ui.Map();
+rightMap.setControlVisibility(false);
+var rightSelector = addLayerSelector(rightMap, 1, 'top-right');
+
+// Adds a layer selection widget to the given map, to allow users to change
+// which image is displayed in the associated map.
+function addLayerSelector(mapToChange, defaultValue, position) {
+  var label = ui.Label('Choose an image to visualize');
+
+  // This function changes the given map to show the selected image.
+  function updateMap(selection) {
+    mapToChange.layers().set(0, ui.Map.Layer(images[selection]));
+  }
+
+  // Configure a selection dropdown to allow the user to choose between images,
+  // and set the map to update when a user makes a selection.
+  var select = ui.Select({items: Object.keys(images), onChange: updateMap});
+  select.setValue(Object.keys(images)[defaultValue], true);
+
+  var controlPanel =
+      ui.Panel({widgets: [label, select], style: {position: position}});
+
+  mapToChange.add(controlPanel);
+}
+
+
+/*
+ * Tie everything together
+ */
+
+// Create a SplitPanel to hold the adjacent, linked maps.
+var splitPanel = ui.SplitPanel({
+  firstPanel: leftMap,
+  secondPanel: rightMap,
+  wipe: true,
+  style: {stretch: 'both'}
+});
+
+// Set the SplitPanel as the only thing in the UI root.
+ui.root.widgets().reset([splitPanel]);
+var linker = ui.Map.Linker([leftMap, rightMap]);
+leftMap.setCenter(-84.20875, 30.6565, 12);

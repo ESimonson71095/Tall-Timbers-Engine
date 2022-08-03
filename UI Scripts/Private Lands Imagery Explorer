@@ -1,0 +1,124 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = 
+    /* color: #d63000 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[-84.26357445493488, 30.68843183436677],
+          [-84.26357445493488, 30.632024104197125],
+          [-84.19113335386066, 30.632024104197125],
+          [-84.19113335386066, 30.68843183436677]]], null, false),
+    TT = ee.FeatureCollection("users/esimonson/AOIs/TallTimbersResearchStation");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+Map.centerObject(TT);
+//Map.addLayer(TT, {}, 'Tall Timbers Research Station');
+
+// FUNCTIONS TO ADD NDVI AND NBR TO IMAGE COLLECTION    
+var addNDVI = function(image) {
+  var ndvi = image.normalizedDifference(['B5', 'B4']).rename('NDVI');
+  return image.addBands(ndvi);
+};
+
+var landsatCollection = ee.ImageCollection("LANDSAT/LC08/C01/T1_TOA")
+    .filterBounds(TT)
+    .map(addNDVI);
+    
+// SEPARATE THE INDEX TIME SERIES INTO THEIR OWN COLLECTION
+var NDVI_Collection = landsatCollection.select(['NDVI']);
+
+//var sentinelCollection = ee.ImageCollection("COPERNICUS/S2")
+    //.filterBounds(TT);
+
+var sat_scene_dict = landsatCollection.map(function(sat_scene) {
+  var dict = {
+    value: sat_scene.id(),
+    label: sat_scene.get('DATE_ACQUIRED'), 
+  };
+  return ee.Feature(sat_scene.geometry(), dict);
+});
+
+var features = sat_scene_dict.getInfo()['features'];
+var select_items = []
+for (var i = 0; i < features.length; i++) {
+  select_items.push({
+    label: features[i]['properties']['label'],
+    value: features[i]['properties']['value']
+  })
+}
+
+// DEFINE IMAGE VISUALIZATION PARAMETERS FOR CANDIDATE IMAGERY
+var L8_vizParams = {
+  bands: ['B7', 'B5', 'B4'],
+  min: 0,
+  max: 0.5,
+  gamma: [0.95, 1.1, 1]
+};
+
+/* Create UI Panels */
+var panel = ui.Panel({style: {width:'300px'}})
+
+ui.root.insert(0,panel);
+/* Introduction */
+var intro = ui.Label('Private Lands Imagery Assessment Tool', 
+  {fontWeight: 'bold', fontSize: '24px', margin: '10px 5px'}
+);
+var subtitle = ui.Label('Select a Landsat 8 image from the time series');
+panel.add(intro).add(subtitle);
+
+var imageSelect = ui.Select({
+  items: select_items,
+  onChange: function(value) {
+    var selected_scene = 
+        landsatCollection.filter(ee.Filter.eq('system:index', value));
+    Map.layers().reset()
+    Map.addLayer(selected_scene, L8_vizParams, 'Selected scene');
+  }
+});
+
+panel.add(imageSelect)
+panel.add(ui.Label('Click a location to view vegetation changes over time'));
+
+// // Display the image with the given ID.
+// var display = function(id) {
+//   var image = landsatCollection.filter(ee.Filter.eq("system:index", id))
+//   Map.layers().reset()
+//   Map.addLayer(image, L8_vizParams, id)
+// }
+
+// // Get the list of IDs and put them into a select
+// landsatCollection.aggregate_array("system:index").evaluate(function(ids) {
+//   Map.add(ui.Select({
+//     items: ids,
+//     onChange: display
+//   }))
+// });
+
+
+// Set a callback function for when the user clicks the map.
+Map.onClick(function(coords) {
+  // Create or update the location label (the second widget in the panel)
+  var location = 'lon: ' + coords.lon.toFixed(2) + ' ' +
+                'lat: ' + coords.lat.toFixed(2);
+  panel.widgets().set(1, ui.Label(location));
+
+  // Add a red dot to the map where the user clicked.
+  var point = ee.Geometry.Point(coords.lon, coords.lat);
+  Map.layers().set(1, ui.Map.Layer(point, {color: 'FF0000'}));
+
+  // Create a chart of NDVI over time.
+  var chart = ui.Chart.image.series(NDVI_Collection, point, ee.Reducer.mean(), 200)
+      .setOptions({
+        title: 'NDVI Over Time',
+        vAxis: {title: 'NDVI'},
+        lineWidth: 1,
+        pointSize: 3,
+      });
+
+  // Add (or replace) the third widget in the panel by
+  // manipulating the widgets list.
+  panel.widgets().set(2, chart);
+});

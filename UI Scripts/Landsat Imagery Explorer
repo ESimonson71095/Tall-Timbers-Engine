@@ -1,0 +1,584 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var TT = ee.FeatureCollection("users/esimonson/AOIs/TallTimbersResearchStation"),
+    SE_AOI = ee.FeatureCollection("users/esimonson/SE_FHM/Southeast_AOI_Updated"),
+    NLCD = ee.ImageCollection("USGS/NLCD_RELEASES/2016_REL"),
+    BA_1994 = ee.Image("users/esimonson/SE_FHM/FireLayer_1994_90BP_SE"),
+    BA_1995 = ee.Image("users/esimonson/SE_FHM/FireLayer_1995_90BP_SE"),
+    BA_1996 = ee.Image("users/esimonson/SE_FHM/FireLayer_1996_90BP_SE"),
+    BA_1997 = ee.Image("users/esimonson/SE_FHM/FireLayer_1997_90BP_SE"),
+    BA_1998 = ee.Image("users/esimonson/SE_FHM/FireLayer_1998_90BP_SE"),
+    BA_1999 = ee.Image("users/esimonson/SE_FHM/FireLayer_1999_90BP_SE"),
+    BA_2000 = ee.Image("users/esimonson/SE_FHM/FireLayer_2000_90BP_SE"),
+    BA_2001 = ee.Image("users/esimonson/SE_FHM/FireLayer_2001_90BP_SE"),
+    BA_2002 = ee.Image("users/esimonson/SE_FHM/FireLayer_2002_90BP_SE"),
+    BA_2003 = ee.Image("users/esimonson/SE_FHM/FireLayer_2003_90BP_SE"),
+    BA_2004 = ee.Image("users/esimonson/SE_FHM/FireLayer_2004_90BP_SE"),
+    BA_2005 = ee.Image("users/esimonson/SE_FHM/FireLayer_2005_90BP_SE"),
+    BA_2006 = ee.Image("users/esimonson/SE_FHM/FireLayer_2006_90BP_SE"),
+    BA_2007 = ee.Image("users/esimonson/SE_FHM/FireLayer_2007_90BP_SE"),
+    BA_2008 = ee.Image("users/esimonson/SE_FHM/FireLayer_2008_90BP_SE"),
+    BA_2009 = ee.Image("users/esimonson/SE_FHM/FireLayer_2009_90BP_SE"),
+    BA_2010 = ee.Image("users/esimonson/SE_FHM/FireLayer_2010_90BP_SE"),
+    BA_2011 = ee.Image("users/esimonson/SE_FHM/FireLayer_2011_90BP_SE"),
+    BA_2012 = ee.Image("users/esimonson/SE_FHM/FireLayer_2012_90BP_SE"),
+    BA_2013 = ee.Image("users/esimonson/SE_FHM/FireLayer_2013_90BP_SE"),
+    BA_2014 = ee.Image("users/esimonson/SE_FHM/FireLayer_2014_90BP_SE"),
+    BA_2015 = ee.Image("users/esimonson/SE_FHM/FireLayer_2015_90BP_SE"),
+    BA_2016 = ee.Image("users/esimonson/SE_FHM/FireLayer_2016_90BP_SE"),
+    BA_2017 = ee.Image("users/esimonson/SE_FHM/FireLayer_2017_90BP_SE"),
+    BA_2018 = ee.Image("users/esimonson/SE_FHM/FireLayer_2018_90BP_SE"),
+    BA_2019 = ee.Image("users/esimonson/SE_FHM/FireLayer_2019_90BP_SE"),
+    NoData = ee.Image("users/esimonson/SE_FHM/FireLayer_1994_90BP_SE");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// DATA  PRE-PROCESSING
+
+// CREATE BLANK (NO DATA) IMAGE FOR UI
+var NoDataMask = NoData.gt(1)
+var NoData = NoData.updateMask(NoDataMask)
+
+// IMPORT NLCD DATA
+var NLCD = NLCD.filterDate('2016-01-01','2016-12-31').mosaic().clip(SE_AOI)
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+// CREATE NO DATA MASK
+var BA_1994_Mask = BA_1994.neq(0)
+var BA_1995_Mask = BA_1995.neq(0)
+var BA_1996_Mask = BA_1996.neq(0)
+var BA_1997_Mask = BA_1997.neq(0)
+var BA_1998_Mask = BA_1998.neq(0)
+var BA_1999_Mask = BA_1999.neq(0)
+var BA_2000_Mask = BA_2000.neq(0)
+var BA_2001_Mask = BA_2001.neq(0)
+var BA_2002_Mask = BA_2002.neq(0)
+var BA_2003_Mask = BA_2003.neq(0)
+var BA_2004_Mask = BA_2004.neq(0)
+var BA_2005_Mask = BA_2005.neq(0)
+var BA_2006_Mask = BA_2006.neq(0)
+var BA_2007_Mask = BA_2007.neq(0)
+var BA_2008_Mask = BA_2008.neq(0)
+var BA_2009_Mask = BA_2009.neq(0)
+var BA_2010_Mask = BA_2010.neq(0)
+var BA_2011_Mask = BA_2011.neq(0)
+var BA_2012_Mask = BA_2012.neq(0)
+var BA_2013_Mask = BA_2013.neq(0)
+var BA_2014_Mask = BA_2014.neq(0)
+var BA_2015_Mask = BA_2015.neq(0)
+var BA_2016_Mask = BA_2016.neq(0)
+var BA_2017_Mask = BA_2017.neq(0)
+var BA_2018_Mask = BA_2018.neq(0)
+var BA_2019_Mask = BA_2019.neq(0)
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+// SET NO DATA TO NULL AND CLIP TO AOI
+var BA_1994 = BA_1994.updateMask(BA_1994_Mask).clip(SE_AOI)
+var BA_1995 = BA_1995.updateMask(BA_1995_Mask).clip(SE_AOI)
+var BA_1996 = BA_1996.updateMask(BA_1996_Mask).clip(SE_AOI)
+var BA_1997 = BA_1997.updateMask(BA_1997_Mask).clip(SE_AOI)
+var BA_1998 = BA_1998.updateMask(BA_1998_Mask).clip(SE_AOI)
+var BA_1999 = BA_1999.updateMask(BA_1999_Mask).clip(SE_AOI)
+var BA_2000 = BA_2000.updateMask(BA_2000_Mask).clip(SE_AOI)
+var BA_2001 = BA_2001.updateMask(BA_2001_Mask).clip(SE_AOI)
+var BA_2002 = BA_2002.updateMask(BA_2002_Mask).clip(SE_AOI)
+var BA_2003 = BA_2003.updateMask(BA_2003_Mask).clip(SE_AOI)
+var BA_2004 = BA_2004.updateMask(BA_2004_Mask).clip(SE_AOI)
+var BA_2005 = BA_2005.updateMask(BA_2005_Mask).clip(SE_AOI)
+var BA_2006 = BA_2006.updateMask(BA_2006_Mask).clip(SE_AOI)
+var BA_2007 = BA_2007.updateMask(BA_2007_Mask).clip(SE_AOI)
+var BA_2008 = BA_2008.updateMask(BA_2008_Mask).clip(SE_AOI)
+var BA_2009 = BA_2009.updateMask(BA_2009_Mask).clip(SE_AOI)
+var BA_2010 = BA_2010.updateMask(BA_2010_Mask).clip(SE_AOI)
+var BA_2011 = BA_2011.updateMask(BA_2011_Mask).clip(SE_AOI)
+var BA_2012 = BA_2012.updateMask(BA_2012_Mask).clip(SE_AOI)
+var BA_2013 = BA_2013.updateMask(BA_2013_Mask).clip(SE_AOI)
+var BA_2014 = BA_2014.updateMask(BA_2014_Mask).clip(SE_AOI)
+var BA_2015 = BA_2015.updateMask(BA_2015_Mask).clip(SE_AOI)
+var BA_2016 = BA_2016.updateMask(BA_2016_Mask).clip(SE_AOI)
+var BA_2017 = BA_2017.updateMask(BA_2017_Mask).clip(SE_AOI)
+var BA_2018 = BA_2018.updateMask(BA_2018_Mask).clip(SE_AOI)
+var BA_2019 = BA_2019.updateMask(BA_2019_Mask).clip(SE_AOI)
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+// RENAME BANDS FOR EACH OF THE LAYERS
+var BA_1994 = BA_1994.select(['b1'],['1994'])
+var BA_1995 = BA_1995.select(['b1'],['1995'])
+var BA_1996 = BA_1996.select(['b1'],['1996'])
+var BA_1997 = BA_1997.select(['b1'],['1997'])
+var BA_1998 = BA_1998.select(['b1'],['1998'])
+var BA_1999 = BA_1999.select(['b1'],['1999'])
+var BA_2000 = BA_2000.select(['b1'],['2000'])
+var BA_2001 = BA_2001.select(['b1'],['2001'])
+var BA_2002 = BA_2002.select(['b1'],['2002'])
+var BA_2003 = BA_2003.select(['b1'],['2003'])
+var BA_2004 = BA_2004.select(['b1'],['2004'])
+var BA_2005 = BA_2005.select(['b1'],['2005'])
+var BA_2006 = BA_2006.select(['b1'],['2006'])
+var BA_2007 = BA_2007.select(['b1'],['2007'])
+var BA_2008 = BA_2008.select(['b1'],['2008'])
+var BA_2009 = BA_2009.select(['b1'],['2009'])
+var BA_2010 = BA_2010.select(['b1'],['2010'])
+var BA_2011 = BA_2011.select(['b1'],['2011'])
+var BA_2012 = BA_2012.select(['b1'],['2012'])
+var BA_2013 = BA_2013.select(['b1'],['2013'])
+var BA_2014 = BA_2014.select(['b1'],['2014'])
+var BA_2015 = BA_2015.select(['b1'],['2015'])
+var BA_2016 = BA_2016.select(['b1'],['2016'])
+var BA_2017 = BA_2017.select(['b1'],['2017'])
+var BA_2018 = BA_2018.select(['b1'],['2018'])
+var BA_2019 = BA_2019.select(['b1'],['2019'])
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MERGE THE IMAGES INTO AN IMAGE COLLECTION
+var merged = ee.ImageCollection([BA_1994,BA_1995,BA_1996,BA_1997,BA_1998,BA_1999,BA_2000,
+              BA_2001,BA_2002,BA_2003,BA_2004,BA_2005,BA_2006,BA_2007,BA_2008,BA_2009,BA_2010,BA_2011,BA_2012,
+              BA_2013,BA_2014,BA_2015,BA_2016,BA_2017,BA_2018,BA_2019])
+
+// CONVERT IMAGE COLLECTION TO IMAGE
+var FHMLayer = merged.toBands();
+
+// CONFIGURE RASTER LAYER PROPERTIES
+var layerProperties = {
+  'Burned Area 1994': {
+    name: '0_1994',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 1994': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 1995': {
+    name: '1_1995',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 1995': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 1996': {
+    name: '2_1996',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 1996': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 1997': {
+    name: '3_1997',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 1997': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 1998': {
+    name: '4_1998',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 1998': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 1999': {
+    name: '5_1999',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 1999': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2000': {
+    name: '6_2000',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2000': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2001': {
+    name: '7_2001',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2001': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2002': {
+    name: '8_2002',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2002': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2003': {
+    name: '9_2003',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2003': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2004': {
+    name: '10_2004',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2004': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2005': {
+    name: '11_2005',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2005': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2006': {
+    name: '12_2006',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2006': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2007': {
+    name: '13_2007',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2007': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2008': {
+    name: '14_2008',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2008': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2009': {
+    name: '15_2009',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2009': 'ff0000'}],
+    defaultVisibility: false
+  },
+    'Burned Area 2010': {
+    name: '16_2010',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2010': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2011': {
+    name: '17_2011',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2011': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2012': {
+    name: '18_2012',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2012': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2013': {
+    name: '19_2013',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2013': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2014': {
+    name: '20_2014',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2014': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2015': {
+    name: '21_2015',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2015': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2016': {
+    name: '22_2016',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2016': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2017': {
+    name: '23_2017',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2017': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2018': {
+    name: '24_2018',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2018': 'ff0000'}],
+    defaultVisibility: false
+  },
+      'Burned Area 2019': {
+    name: '25_2019',
+    visParams: {min: 1, max: 1, palette: ['ff0000']},
+    legend: [{'Burned Area 2019': 'ff0000'}],
+    defaultVisibility: false
+  }
+};
+
+Map.addLayer(NoData)
+
+// ADD FIRE HISTORY LAYERS TO MAP
+var opacityChangingLayers = []
+for (var key in layerProperties) {
+  var layer = layerProperties[key];
+  var image = FHMLayer.select(layer.name).visualize(layer.visParams);
+  var mapLayer = ui.Map.Layer(image, {}, key, layer.defaultVisibility);
+  Map.add(mapLayer)
+  opacityChangingLayers.push(mapLayer);
+}
+
+ // DEFINE VARIABLES THAT WILL BE USED IN THE LAYER SELECTION 
+var selectItems = Object.keys(layerProperties);
+var layerSelect;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+// The namespace for our application.  All the state is kept in here.
+var app = {};
+
+/** Creates the UI panels. */
+app.createPanels = function() {
+  /* The introduction section. */
+  app.intro = {
+    panel: ui.Panel([
+      ui.Label({
+        value: 'Landsat 8 Explorer',
+        style: {fontWeight: 'bold', fontSize: '24px', margin: '10px 5px'}
+      }),
+      ui.Label('This app allows you to filter and export images ' +
+               'from the Landsat 8 collection.')
+    ])
+  };
+  
+  // DEFINE THE PULL DOWN MENU - CHANGING THE LAYER WILL ALSO CHANGE THE LEGEND
+app.layerSelect = ui.Select({
+  items: selectItems,
+  value: selectItems[0],
+  onChange: function(selected) {
+    opacityChangingLayers.forEach(function(element, index) {
+      element.setShown(selected == element.getName());
+    });
+    //setLegend(layerProperties[selected].legend);
+  }
+});
+
+  app.select_layer = ui.Panel({
+    widgets: [ui.Label('Select Layer', {'font-size': '24px'}),
+    app.layerSelect]
+  })
+      
+
+
+
+
+  /* The collection filter controls. */
+  app.filters = {
+    mapCenter: ui.Checkbox({label: 'Filter to map center', value: true}),
+    startDate: ui.Textbox('YYYY-MM-DD', '2014-01-01'),
+    endDate: ui.Textbox('YYYY-MM-DD', '2020-07-01'),
+    applyButton: ui.Button('Apply filters', app.applyFilters),
+    loadingLabel: ui.Label({
+      value: 'Loading...',
+      style: {stretch: 'vertical', color: 'gray', shown: false}
+    })
+  };
+
+  /* The panel for the filter control widgets. */
+  app.filters.panel = ui.Panel({
+    widgets: [
+      ui.Label('1) Select filters', {fontWeight: 'bold'}),
+      ui.Label('Start date', app.HELPER_TEXT_STYLE), app.filters.startDate,
+      ui.Label('End date', app.HELPER_TEXT_STYLE), app.filters.endDate,
+      app.filters.mapCenter,
+      ui.Panel([
+        app.filters.applyButton,
+        app.filters.loadingLabel
+      ], ui.Panel.Layout.flow('horizontal'))
+    ],
+    style: app.SECTION_STYLE
+  });
+
+  /* The image picker section. */
+  app.picker = {
+    // Create a select with a function that reacts to the "change" event.
+    select: ui.Select({
+      placeholder: 'Select an image ID',
+      onChange: app.refreshMapLayer
+    }),
+    // Create a button that centers the map on a given object.
+    centerButton: ui.Button('Center on map', function() {
+      Map.centerObject(Map.layers().get(0).get('eeObject'));
+    })
+  };
+
+  /* The panel for the picker section with corresponding widgets. */
+  app.picker.panel = ui.Panel({
+    widgets: [
+      ui.Label('2) Select an image', {fontWeight: 'bold'}),
+      ui.Panel([
+        app.picker.select,
+        app.picker.centerButton
+      ], ui.Panel.Layout.flow('horizontal'))
+    ],
+    style: app.SECTION_STYLE
+  });
+
+  /* The visualization section. */
+  app.vis = {
+    label: ui.Label(),
+    // Create a select with a function that reacts to the "change" event.
+    select: ui.Select({
+      items: Object.keys(app.VIS_OPTIONS),
+      onChange: function() {
+        // Update the label's value with the select's description.
+        var option = app.VIS_OPTIONS[app.vis.select.getValue()];
+        app.vis.label.setValue(option.description);
+        // Refresh the map layer.
+        app.refreshMapLayer();
+      }
+    })
+  };
+
+  /* The panel for the visualization section with corresponding widgets. */
+  app.vis.panel = ui.Panel({
+    widgets: [
+      ui.Label('3) Select a visualization', {fontWeight: 'bold'}),
+      app.vis.select,
+      app.vis.label
+    ],
+    style: app.SECTION_STYLE
+  });
+
+  // Default the select to the first value.
+  app.vis.select.setValue(app.vis.select.items().get(0));
+
+  /* The export section. */
+  app.export = {
+    button: ui.Button({
+      label: 'Export the current image to Drive',
+      // React to the button's click event.
+      onClick: function() {
+        // Select the full image id.
+        var imageIdTrailer = app.picker.select.getValue();
+        var imageId = app.COLLECTION_ID + '/' + imageIdTrailer;
+        // Get the visualization options.
+        var visOption = app.VIS_OPTIONS[app.vis.select.getValue()];
+        // Export the image to Drive.
+        Export.image.toDrive({
+          image: ee.Image(imageId).select(visOption.visParams.bands),
+          description: 'L8_Export-' + imageIdTrailer,
+        });
+      }
+    })
+  };
+
+  /* The panel for the export section with corresponding widgets. */
+  app.export.panel = ui.Panel({
+    widgets: [
+      ui.Label('4) Start an export', {fontWeight: 'bold'}),
+      app.export.button
+    ],
+    style: app.SECTION_STYLE
+  });
+};
+
+/** Creates the app helper functions. */
+app.createHelpers = function() {
+  /**
+   * Enables or disables loading mode.
+   * @param {boolean} enabled Whether loading mode is enabled.
+   */
+  app.setLoadingMode = function(enabled) {
+    // Set the loading label visibility to the enabled mode.
+    app.filters.loadingLabel.style().set('shown', enabled);
+    // Set each of the widgets to the given enabled mode.
+    var loadDependentWidgets = [
+      app.vis.select,
+      app.filters.startDate,
+      app.filters.endDate,
+      app.filters.applyButton,
+      app.filters.mapCenter,
+      app.picker.select,
+      app.picker.centerButton,
+      app.export.button
+    ];
+    loadDependentWidgets.forEach(function(widget) {
+      widget.setDisabled(enabled);
+    });
+  };
+
+  /** Applies the selection filters currently selected in the UI. */
+  app.applyFilters = function() {
+    app.setLoadingMode(true);
+    var filtered = ee.ImageCollection(app.COLLECTION_ID);
+
+    // Filter bounds to the map if the checkbox is marked.
+    if (app.filters.mapCenter.getValue()) {
+      filtered = filtered.filterBounds(Map.getCenter());
+    }
+
+    // Set filter variables.
+    var start = app.filters.startDate.getValue();
+    if (start) start = ee.Date(start);
+    var end = app.filters.endDate.getValue();
+    if (end) end = ee.Date(end);
+    if (start) filtered = filtered.filterDate(start, end);
+
+    // Get the list of computed ids.
+    var computedIds = filtered
+        .limit(app.IMAGE_COUNT_LIMIT)
+        .reduceColumns(ee.Reducer.toList(), ['system:index'])
+        .get('list');
+
+    computedIds.evaluate(function(ids) {
+      // Update the image picker with the given list of ids.
+      app.setLoadingMode(false);
+      app.picker.select.items().reset(ids);
+      // Default the image picker to the first id.
+      app.picker.select.setValue(app.picker.select.items().get(0));
+    });
+  };
+
+  /** Refreshes the current map layer based on the UI widget states. */
+  app.refreshMapLayer = function() {
+    //Map.clear();
+    var imageId = app.picker.select.getValue();
+    if (imageId) {
+      // If an image id is found, create an image.
+      var image = ee.Image(app.COLLECTION_ID + '/' + imageId);
+      // Add the image to the map with the corresponding visualization options.
+      var visOption = app.VIS_OPTIONS[app.vis.select.getValue()];
+      var Landsat_lyr = ui.Map.Layer(image, visOption.visParams, imageId)
+      Map.layers().set(0, Landsat_lyr,'Landsat Reference Image')
+      //Map.addLayer();
+    }
+  };
+};
+
+/** Creates the app constants. */
+app.createConstants = function() {
+  app.COLLECTION_ID = 'LANDSAT/LC08/C01/T1_TOA';
+  app.SECTION_STYLE = {margin: '20px 0 0 0'};
+  app.HELPER_TEXT_STYLE = {
+      margin: '8px 0 -3px 8px',
+      fontSize: '12px',
+      color: 'gray'
+  };
+  //app.IMAGE_COUNT_LIMIT = 100;
+  app.VIS_OPTIONS = {
+    'False color (B7/B6/B4)': {
+      description: 'Vegetation is shades of red, urban areas are ' +
+                   'cyan blue, and soils are browns.',
+      visParams: {gamma: 1.3, min: 0, max: 0.3, bands: ['B7', 'B6', 'B4']}
+    },
+    'Natural color (B4/B3/B2)': {
+      description: 'Ground features appear in colors similar to their ' +
+                   'appearance to the human visual system.',
+      visParams: {gamma: 1.3, min: 0, max: 0.3, bands: ['B4', 'B3', 'B2']}
+    },
+    'Burn Scar (B7/B5/B4)': {
+      description: 'Used in Fire Detection, ' +
+                   'Burns Scars Appear Dark Red/Brown.',
+      visParams: {gamma: 1.3, min: 0, max: 0.5, bands: ['B7', 'B5', 'B4']}
+    }
+  };
+};
+
+/** Creates the application interface. */
+app.boot = function() {
+  app.createConstants();
+  app.createHelpers();
+  app.createPanels();
+  var main = ui.Panel({
+    widgets: [
+      app.intro.panel,
+      app.select_layer,
+      app.filters.panel,
+      app.picker.panel,
+      app.vis.panel,
+      app.export.panel
+    ],
+    style: {width: '320px', padding: '8px'}
+  });
+  Map.centerObject(TT);
+  ui.root.insert(1, main);
+  app.applyFilters();
+};
+
+app.boot();

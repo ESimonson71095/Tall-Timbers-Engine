@@ -1,0 +1,194 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var LLL = ee.FeatureCollection("users/esimonson/AOIs/Longleaf_Legacy"),
+    fc = ee.FeatureCollection("users/esimonson/AOIs/Plantations");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+var empty = ee.Image().byte();
+
+
+
+var L8_vizParams = {
+  bands: ['B7', 'B5', 'B4'],
+  min: 0,
+  max: 0.5,
+  gamma: [0.95, 1.1, 1]
+};
+
+/*
+ * Configure the imagery
+ */
+var addNBR = function(image) {
+  var nbr = image.normalizedDifference(['B5', 'B7']).rename('NBR');
+  return image.addBands(nbr);
+};
+
+var NAIP = ee.ImageCollection('USDA/NAIP/DOQQ')
+  .filterBounds(LLL)
+  
+var NAIP_2017 = NAIP.filterDate('2017-01-01', '2017-12-31').mosaic()
+var NAIP_2015 = NAIP.filterDate('2015-01-01', '2015-12-31').mosaic()
+var NAIP_2013 = NAIP.filterDate('2013-01-01', '2013-12-31').mosaic()
+var NAIP_2010 = NAIP.filterDate('2010-01-01', '2010-12-31').mosaic()
+var NAIP_2007 = NAIP.filterDate('2007-01-01', '2007-12-31').mosaic()
+var NAIP_2006 = NAIP.filterDate('2006-01-01', '2006-12-31').mosaic()
+var NAIP_2005 = NAIP.filterDate('2005-01-01', '2005-12-31').mosaic()
+
+// These Sentinel-1 images track the major flooding in Myanmar during the 2018
+// monsoon season: https://www.bbc.com/news/world-asia-44962585
+var images = {
+  '2017': NAIP_2017,
+  '2015': NAIP_2015,
+  '2013': NAIP_2013,
+  '2010': NAIP_2010,
+  '2007': NAIP_2007,
+  '2006': NAIP_2006,
+  '2005': NAIP_2005,
+};
+
+/*
+ * Set up the maps and control widgets
+ */
+
+// Create the left map, and have it display layer 0.
+var leftMap = ui.Map();
+leftMap.setControlVisibility(false);
+var leftSelector = addLayerSelector(leftMap, 0, 'top-left');
+
+// Create the right map, and have it display layer 1.
+var rightMap = ui.Map();
+rightMap.setControlVisibility(false);
+var rightSelector = addLayerSelector(rightMap, 1, 'top-right');
+
+// Adds a layer selection widget to the given map, to allow users to change
+// which image is displayed in the associated map.
+function addLayerSelector(mapToChange, defaultValue, position) {
+  var label = ui.Label('Choose an image to visualize');
+
+  // This function changes the given map to show the selected image.
+  function updateMap(selection) {
+    mapToChange.layers().set(0, ui.Map.Layer(images[selection]));
+  }
+
+  // Configure a selection dropdown to allow the user to choose between images,
+  // and set the map to update when a user makes a selection.
+  var select = ui.Select({items: Object.keys(images), onChange: updateMap});
+  select.setValue(Object.keys(images)[defaultValue], true);
+
+  var controlPanel =
+      ui.Panel({widgets: [label, select], style: {position: position}});
+
+  mapToChange.add(controlPanel);
+}
+
+
+/*
+ * Tie everything together
+ */
+
+// Create a SplitPanel to hold the adjacent, linked maps.
+var splitPanel = ui.SplitPanel({
+  firstPanel: leftMap,
+  secondPanel: rightMap,
+  wipe: true,
+  style: {stretch: 'both'}
+});
+
+// Set the SplitPanel as the only thing in the UI root.
+ui.root.widgets().reset([splitPanel]);
+var linker = ui.Map.Linker([leftMap, rightMap]);
+leftMap.setCenter(-84.20875, 30.6565, 12);
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+var names = fc.aggregate_array('name');
+
+var outline = empty.paint({
+  featureCollection: fc,
+  color: 1,
+  width: 3
+});
+
+//Create Plantation selection widget that searches fusion table by array of names
+// var select = ui.Select({
+//   items: names.getInfo(),
+//   placeholder: ('Choose Area of Interest'),
+//   style: {width: '290px'},
+//   onChange: function(key) {
+//     Map.clear(); //clears previous calculations from map upon new selection
+//     var selection = ee.Feature(fc.filter(ee.Filter.eq('name', key)).first());
+//     leftMap.centerObject(selection); //centers map on Plantation selection
+//     // show Plantation
+//     var layer1 = ui.Map.Layer(selection, {color:'blue'}, 'Plantation');
+//     leftMap.layers().set(0, layer1); //adds Plantation selection to the map
+    
+//     var layer2 = ui.Map.Layer(selection, {color:'blue'}, 'Plantation');
+//     rightMap.layers().set(0, layer2); //adds Plantation selection to the other map
+    
+//     var conversion = ee.FeatureCollection(selection); //converts the Plantation selection into a feature collection for future analyses
+//   }
+// });
+
+var select = ui.Select({
+  items: names.getInfo(),
+  placeholder: ('Choose Area of Interest'),
+  style: {width: '290px'},
+  onChange: function(key) {
+    // Map.clear(); //clears previous calculations from map upon new selection
+    var selection = ee.Feature(fc.filter(ee.Filter.eq('name', key)).first());
+    // print(selection)
+    leftMap.centerObject(selection); //centers map on Plantation selection
+    // show Plantation
+    var shown = true; // true or false, 1 or 0
+    var opacity = 0.2; // number [0-1]
+    var layer1 = ui.Map.Layer(selection, {color:'blue'}, 'Plantation', shown, opacity);
+    leftMap.layers().set(1, layer1); //adds Plantation selection to the map
+    var layer2 = ui.Map.Layer(selection, {color:'blue'}, 'Plantation', shown, opacity);
+    rightMap.layers().set(1, layer2); //adds Plantation selection to the map
+    var conversion = ee.FeatureCollection(selection); //converts the Plantation selection into a feature collection for future analyses
+  }
+});
+
+// var select = ui.Select({
+//   items: names.getInfo(),
+//   placeholder: ('Choose Area of Interest'),
+//   style: {width: '290px'},
+//   onChange: function(key) {
+//     Map.clear(); //clears previous calculations from map upon new selection
+//     var selection = ee.Feature(fc.filter(ee.Filter.eq('name', key)).first());
+//     Map.centerObject(selection); //centers map on Plantation selection
+//     // show Plantation
+//     var layer = ui.Map.Layer(selection, {color:'blue'}, 'Plantation');
+//     Map.layers().set(0, layer); //adds Plantation selection to the map
+//     var conversion = ee.FeatureCollection(selection); //converts the Plantation selection into a feature collection for future analyses
+//   }
+// });
+
+//Create master panel in which to arrange widgets
+var panel = ui.Panel({style: {width: '320px'}})
+    .add(ui.Label({
+    value: 'BETA: Private Lands Change Detection Tool', //create title for whole UI
+    style: {fontWeight: 'bold', fontSize: '22px', color: '#228B22'}
+    })
+  );
+
+//Create drop-down for Plantation selection
+var hcpbtn = ui.Panel({
+  widgets: [select], //include select widget
+  layout: ui.Panel.Layout.flow('vertical'),
+});
+
+//Create labels for step one and include Plantation selection button  
+var stepone = ui.Panel({
+    widgets: [
+      ui.Label('1) Select Area of Interest', {fontWeight: 'bold'}), //title for Step 1
+      ui.Label('If your area of interest is not listed, contact support to get your area added.',
+        {fontSize: '12px'}),
+      ui.Label('Updating this selection will clear the map of all previous outputs.', {fontSize: '12px'}),
+      select, //adds HCP selection section
+    ],
+  });
+  
+//BEGIN call functions to create user interface//
+panel.add(stepone); //add step one to panel
+ui.root.add(panel); //add panel to root
+//END call functions to create user interface//

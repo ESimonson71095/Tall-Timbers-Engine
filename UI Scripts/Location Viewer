@@ -1,0 +1,115 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var LLL = ee.FeatureCollection("users/esimonson/AOIs/Longleaf_Legacy"),
+    PublicLands = ee.FeatureCollection("users/esimonson/SE_FHM/PublicLands_SE"),
+    FireHistory = ee.ImageCollection("users/esimonson/SE_FHM/FireLayer_Collection_SE"),
+    SE_Wildfires = ee.FeatureCollection("users/esimonson/Southeast_Annual_Wildfires_1994_2019_1");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  
+// EXTRACT STATE NAMES TO A VARIABLE
+var LandNames = PublicLands.aggregate_array('ORIG_NAME').sort()
+
+var SE_Wildfire_Years = SE_Wildfires.aggregate_array('FireYrStr').sort()
+print(SE_Wildfire_Years)
+
+// Create an empty image into which to paint the features, cast to byte.
+var empty = ee.Image().byte();
+
+// Paint all the polygon edges with the same number and width, display.
+
+var outline = empty.paint({
+  featureCollection: SE_Wildfires,
+  color: 1,
+  width: 3
+});
+
+// Some pre-set locations of interest that will be loaded into a pulldown menu.
+var locationDict = {
+  'Southeast': {lon: -84.1557, lat: 31.5785, zoom: 8},
+  //'Tornado in Alabama': {lon: -87.332, lat: 33.313, zoom: 11}
+};
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/*
+ * Map panel configuration
+ */
+
+// Now let's do some overall layout.
+// Create a map panel.
+var mapPanel = ui.Map();
+mapPanel.setOptions('HYBRID');
+mapPanel.style().set('cursor', 'crosshair');
+
+// var chartPanel1 = ui.Panel({
+//   style:
+//       {height: '275px', width: '600px', position: 'bottom-right', shown: false}
+// });
+
+// var Close = ui.Button('Close', function() {
+//       chartPanel1.style().set({shown: false});});
+// chartPanel1.add(Close)
+
+// mapPanel.add(chartPanel1)
+
+// Take all tools off the map except the zoom and mapTypeControl tools.
+mapPanel.setControlVisibility(
+    {all: true, zoomControl: true, mapTypeControl: true});
+
+
+// Add these to the interface.
+ui.root.widgets().reset([mapPanel]);
+ui.root.setLayout(ui.Panel.Layout.flow('horizontal'));
+
+
+
+// var toolPanel = ui.Panel([header, text], 'flow', {width: '300px'});
+var toolPanel = ui.Panel({
+  //widgets : ([header,text]),
+  layout: ui.Panel.Layout.flow('vertical'),
+  style: {width: '300px', position: 'bottom-left'}
+});
+// Default
+ui.root.widgets().add(toolPanel);
+// To add customized location
+//mapPanel.add(toolPanel)
+
+
+//Create AOI selection widget that searches fusion table by array of names
+var select = ui.Select({
+  items: SE_Wildfire_Years.getInfo(),
+  placeholder: ('Choose Area of Interest'),
+  style: {width: '290px'},
+  onChange: function(keys) {
+    // if (!chartPanel1.style().get('shown')) {
+    // chartPanel1.style().set('shown', true);
+    // }
+    var selection = ee.Feature(SE_Wildfires.filter(ee.Filter.eq('FireYrStr', keys)).first());
+    var shown = true; // true or false, 1 or 0 
+    var opacity = 0.5; // number [0-1]
+    var selection_lyr = ui.Map.Layer(selection, {color: 'black'}, 'Southeadt Wildfire', shown, opacity)
+    mapPanel.layers().set(0, selection_lyr);
+    
+    //mapPanel.centerObject(selection)
+  //   var options1 = {
+  //   title: 'Fire History for Area of Interest',
+  //   fontSize: 14,
+  //   hAxis: {title: 'Year'},
+  //   vAxis: {title: 'Burned Area'}
+  // };
+  //   var chart1 = ui.Chart.image.series(FireHistory, selection, ee.Reducer.sum(), 30).setOptions(options1);
+  //   chartPanel1.widgets().reset([chart1]);
+  //   chartPanel1.add(Close)
+  }
+});
+
+
+var locationPanel = ui.Panel([
+  ui.Label('Visit Example Locations', {'font-size': '24px'}), select
+]);
+toolPanel.add(locationPanel);
+
+// Check-boxes to control which layers are shown in the inspector.
+
+
+toolPanel.add(ui.Label('Please contact Eli Simonson (esimonson@talltimbers.org) if you have any questions about this application', {fontSize: '11px'}))
