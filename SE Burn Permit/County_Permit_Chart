@@ -1,0 +1,116 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var table = ee.FeatureCollection("users/esimonson/Permits/SE_Counties_w_PermitData_Acres_FINAL"),
+    table2 = ee.FeatureCollection("users/esimonson/Permits/SE_Counties_BurnPermits_Annual_by_Month_FINAL");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// ISOLATE COUNTIES FROM MASTER SHAPEFILE AND THEN MERGE TOGETHETR TO USE AS EXAMPLE AOI
+var Leon = table.filterMetadata("COUNTY", "equals", "Leon, FL")
+var Jefferson = table.filterMetadata("COUNTY", "equals", "Jefferson, FL")
+var Thomas = table.filterMetadata("COUNTY", "equals", "Thomas, GA")
+var counties = Leon.merge(Jefferson).merge(Thomas)
+print(counties,'Counties (My Data)')
+
+// Define a dictionary that associates property names with values and labels.
+var countyInfo = {
+  'ACRE_2010': {v: 2010, f: '2010'},
+  'ACRE_2011': {v: 2011, f: '2011'},
+  'ACRE_2012': {v: 2012, f: '2012'},
+  'ACRE_2013': {v: 2013, f: '2013'},
+  'ACRE_2014': {v: 2014, f: '2014'},
+  'ACRE_2015': {v: 2015, f: '2015'},
+  'ACRE_2016': {v: 2016, f: '2016'},
+  'ACRE_2017': {v: 2017, f: '2017'},
+  'ACRE_2018': {v: 2018, f: '2018'},
+  'ACRE_2019': {v: 2019, f: '2019'},
+  'ACRE_2020': {v: 2020, f: '2020'}
+};
+
+var xPropValDict = {};  // Dictionary to codify x-axis property names as values.
+var xPropLabels = [];   // Holds dictionaries that label codified x-axis values.
+for (var key in countyInfo) {
+  xPropValDict[key] = countyInfo[key].v;
+  xPropLabels.push(countyInfo[key]);
+}
+
+print(xPropValDict)
+var chart =
+    ui.Chart.feature
+        .byProperty({
+          features: counties,
+          xProperties: xPropValDict,
+          seriesProperty: 'COUNTY',
+        })
+        .setChartType('ScatterChart')
+        .setOptions({
+                  title: 'Annual Burn Permit Acreage by County',
+                  hAxis: {
+                    title: 'Year',
+                    titleTextStyle: {italic: false, bold: true},
+                    ticks: xPropLabels,
+                    //gridlines: {count: 0}
+                  },
+                  vAxis: {
+                    title: 'Reported Acreage',
+                    titleTextStyle: {italic: false, bold: true},
+                    //gridlines: {count: 0}
+                  },
+                  //colors: ['f0af07', '0f8755', '76b349'],
+                  lineSize: 5,
+                  pointSize: 0
+                });
+print(chart);
+
+//////////////////////////////////////////////////////////////////////////////////////
+
+var Leon2 = table2.filterMetadata("NAME", "equals", "Leon, FL")
+print(Leon2)
+
+// Define a dictionary that associates property names with values and labels.
+var countyInfo2 = {
+  'ACRE_01': {v: 1, f: 'Jan'},
+  'ACRE_02': {v: 2, f: 'Feb'},
+  'ACRE_03': {v: 3, f: 'Mar'},
+  'ACRE_04': {v: 4, f: 'Apr'},
+  'ACRE_05': {v: 5, f: 'May'},
+  'ACRE_06': {v: 6, f: 'Jun'},
+  'ACRE_07': {v: 7, f: 'Jul'},
+  'ACRE_08': {v: 8, f: 'Aug'},
+  'ACRE_09': {v: 9, f: 'Sep'},
+  'ACRE_10': {v: 10, f: 'Oct'},
+  'ACRE_11': {v: 11, f: 'Nov'},
+  'ACRE_12': {v: 12, f: 'Dec'}
+};
+
+var xPropValDict2 = {};  // Dictionary to codify x-axis property names as values.
+var xPropLabels2 = [];   // Holds dictionaries that label codified x-axis values.
+for (var key in countyInfo2) {
+  xPropValDict2[key] = countyInfo2[key].v;
+  xPropLabels2.push(countyInfo2[key]);
+}
+
+print(xPropValDict2)
+var chart2 =
+    ui.Chart.feature
+        .byProperty({
+          features: Leon2.sort("YEAR"),
+          xProperties: xPropValDict2,
+          seriesProperty: 'YEAR',
+        })
+        .setChartType('ScatterChart')
+        .setOptions({
+                  title: 'Burn Permit Acreage Time Series for Leon County',
+                  hAxis: {
+                    title: 'Month',
+                    titleTextStyle: {italic: false, bold: true},
+                    ticks: xPropLabels2,
+                    //gridlines: {count: 0}
+                  },
+                  vAxis: {
+                    title: 'Reported Acreage',
+                    titleTextStyle: {italic: false, bold: true},
+                    //gridlines: {count: 0}
+                  },
+                  //colors: ['f0af07', '0f8755', '76b349'],
+                  lineSize: 5,
+                  pointSize: 0
+                });
+print(chart2);

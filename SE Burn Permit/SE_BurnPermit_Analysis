@@ -1,0 +1,119 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var AOI = 
+    /* color: #d63000 */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[-84.27099952797987, 30.689492917594098],
+          [-84.27099952797987, 30.62584795802528],
+          [-84.19220695595838, 30.62584795802528],
+          [-84.19220695595838, 30.689492917594098]]], null, false),
+    GRIDMET = ee.ImageCollection("IDAHO_EPSCOR/GRIDMET"),
+    BurnPermits = ee.FeatureCollection("users/esimonson/Permits/BurnPermits_TTRS"),
+    SE_BurnPermits = ee.FeatureCollection("users/esimonson/Permits/SE_BurnPermits_2010to2020");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// REFORMAT DATES FOR ALL POINTS IN THE SHAPEFILE
+var BurnPermits = BurnPermits.map(function (feature) {
+  return feature.set('system:time_start', ee.Date(feature.get('DATE')))
+})
+var SE_BurnPermits = SE_BurnPermits.map(function (feature) {
+  return feature.set('system:time_start', ee.Date(feature.get('DATE')))
+})
+
+// FOR TESTING, FILTER THE SE BURN PERMITS TO ONE STATE
+var BurnPermits_SC = SE_BurnPermits.filter(ee.Filter.inList('STATE',['SC']))
+Map.addLayer(BurnPermits_SC)
+print(BurnPermits_SC.limit(30))
+
+// PRINT ATTRIBUTES TO SEE IF DATE IS FORMATTED CORRECTLY
+//Map.addLayer(BurnPermits)
+
+// FOR TESTING, FILTER THE TTRS PERMITS TO ONE YEAR
+var Permits2020 = BurnPermits.filterDate('2020-01-01','2020-12-30')
+//print(Permits2020)
+
+// FILTER THE GRIDMET DATA TO DESIRED SPATIAL AND TEMPORAL EXTENTS
+var GRIDMET = GRIDMET.filterBounds(AOI).filterDate('2010-01-01','2020-12-31')
+
+
+// THIS FUNCTION ADDS A BAND REPRESENTING THE IMAGE TIMESTAMP TO EACH IMAGE
+var addTime = function(image) {
+  return image.addBands(image.metadata('system:time_start'));
+};
+
+// APPLY THE FUNCTION TO THE GRIDMET IMAGE COLLECTION
+var GRIDMET_w_TIME = GRIDMET.map(addTime)
+print(GRIDMET_w_TIME)
+
+// FUNCTION TO EXTRACT GRIDMET VALUES TO POINTS THAT ALIGN TEMPORALLY
+var ExtractToPoint_ByDate = function(ft){
+  // CREATE GEOMETRY FROM FEATURE
+  var ft_geometry = ft.geometry()
+  // DEFINE START AND END DATES
+  var reference_date = ft.get('DATE')
+  var DATE_Object = ee.Date(reference_date)
+  var start_date = DATE_Object.advance(-1,'day')
+  // USE START AND END DATES TO FILTER GRIDMET COLLECTION
+  var image_for_permit = GRIDMET_w_TIME.filterDate(start_date,'2020-12-31').first()
+  // CREATE A NEW POINT FILE THAT HAS THE GRIDMET VALUES EXTRACTED
+  var permits_w_GRIDMET = image_for_permit.sample({
+  region: ft_geometry,
+  scale: 4000,
+  geometries:true
+});
+  return permits_w_GRIDMET
+}
+
+// APPLY THE FUNCTION TO THE PERMIT RECORDS
+var Permits_w_GRIDMET = BurnPermits_SC.map(ExtractToPoint_ByDate).flatten()
+
+// REFORMAT DATES FOR ALL POINTS IN THE SHAPEFILE
+// ALSO ADD ATTRIBUTES FROM PERMIT SHAPEFILE TO NEW SHAPEFILE
+var Permits_w_GRIDMET = Permits_w_GRIDMET.map(function (feature) {
+  var DATE = ee.Date(feature.get('system:time_start'))
+  var Permit = BurnPermits_SC.filterDate(DATE,'2020-12-31').first()
+  return feature.set('ACQ_DATE', DATE).set('STATE',Permit.get('STATE'))//.set('PERMIT_DATE',Permit.get('system:time_start'))
+})
+
+// PRINT THE FINAL FEATURE COLLECTION AND CHECK METADATA
+print(Permits_w_GRIDMET.limit(30),{},'SC Permits with GRIDMET Data')
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// // Define the chart and print it to the console.
+// var chart =
+//     ui.Chart.feature
+//         .byFeature({
+//           features: Permits_w_GRIDMET,
+//           xProperty: 'system:time_start',
+//           yProperties: ['tmmx']
+//         })
+//         .setSeriesNames(['Max Temp'])
+//         .setChartType('ScatterChart')
+//         .setOptions({
+//           title: 'Max Temp By Permit',
+//           hAxis:
+//               {title: '', titleTextStyle: {italic: false, bold: true}},
+//           vAxis: {
+//             title: 'Temperature (°K)',
+//             titleTextStyle: {italic: false, bold: true}
+//           },
+//           pointSize: 10,
+//           colors: ['1d6b99'],
+//         });
+// print(chart,{},'GRIDMET Values By Permit');
+
+// var GRIDMET_chart = ui.Chart.image.series(GRIDMET_w_TIME.select('tmmx'),AOI,ee.Reducer.median(),4000,'system:time_start')
+// print(GRIDMET_chart,{},'GRIDMET Time Series')
+
+// EXPORT FINAL TABLE TO GOOGLE DRIVE FOR FURTHER ANALYSIS
+Export.table.toDrive({
+collection: Permits_w_GRIDMET,
+  description: 'SC_BurnPermits_w_GRIDMET_data',
+  folder: 'GEE_Downloads',
+fileFormat: 'CSV'
+});
+

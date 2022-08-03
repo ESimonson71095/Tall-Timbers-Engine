@@ -1,0 +1,63 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var SE_BurnPermits = ee.FeatureCollection("users/esimonson/Permits/SE_BurnPermits_2010to2020"),
+    US_States = ee.FeatureCollection("TIGER/2016/States"),
+    US_Counties = ee.FeatureCollection("TIGER/2016/Counties");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var State_Filter = ee.Filter.inList('STUSPS', ["FL", "GA", "MS", "AL", "LA", "TN", "AK", "VA", "SC", "NC"]);
+var SE_States = US_States.filter(State_Filter);
+Map.addLayer(SE_States)
+
+
+var County_Filter = ee.Filter.inList('STATEFP', ["01","02","12","13","22","28","37","45","47","51"]);
+var SE_Counties = US_Counties.filter(County_Filter);
+Map.addLayer(SE_Counties)
+
+
+// ISOLATE PERMITS FOR FLORIDA
+var FL_BurnPermits = SE_BurnPermits.filterMetadata('STATE', 'equals', 'FL')
+
+// var FL_BurnPermits = FL_BurnPermits.map(function (feature) {
+//   return feature.set('system:time_start', ee.Date(feature.get('DATE')).millis())
+// })
+
+var addMonth = function(ft) {
+  var date = ee.Date(ft.get('DATE'))
+  var week = date.get('week')
+  var month = date.get('month')
+  return ft.set('MONTH',month).set('DATE2',date)
+}
+
+FL_BurnPermits = FL_BurnPermits.map(addMonth)
+print(FL_BurnPermits.limit(10))
+
+
+
+
+// Define the chart and print it to the console.
+var chart =
+    ui.Chart.feature
+        .histogram({features: FL_BurnPermits, property: 'MONTH', maxBuckets: 20})
+        .setOptions({
+          title: 'Monthly Burn Permit Counts in Florida (2010-2020)',
+          hAxis: {
+            title: 'Months',
+            titleTextStyle: {italic: false, bold: true}
+          },
+          vAxis: {
+            title: 'Pixel count',
+            titleTextStyle: {italic: false, bold: true}
+          },
+          colors: ['1d6b99'],
+          legend: {position: 'none'}
+        });
+print(chart);
+
+// var hist_list = ee.Array(SE_BurnPermits.aggregate_histogram('STATE'))
+
+// print(hist_list)
+
+// var hist_chart = ui.Chart.array.values(hist_list,2)
+// print(hist_chart)
+
+
+

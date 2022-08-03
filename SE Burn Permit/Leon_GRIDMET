@@ -1,0 +1,99 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var GRIDMET = ee.ImageCollection("IDAHO_EPSCOR/GRIDMET"),
+    SE_Counties = ee.FeatureCollection("users/esimonson/Permits/SE_Counties_w_PermitData_Acres_FINAL");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// SET START AND END YEAR
+var startyear = 2010;
+var endyear = 2020;
+ 
+// MAKE DATE OBJECTS FROM THE START AND END YEARS
+var startdate = ee.Date.fromYMD(startyear, 1, 1);
+var enddate = ee.Date.fromYMD(endyear + 1, 1, 1);
+ 
+// MAKE A LIST WITH THE START AND END YEARS
+var years = ee.List.sequence(startyear, endyear);
+
+// FILTER COUNTIES TO LEON (AOI)
+var Leon = SE_Counties.filterMetadata("COUNTY","equals","Leon, FL")
+var Jefferson = SE_Counties.filterMetadata("COUNTY","equals","Jefferson, FL")
+var counties = Leon.merge(Jefferson)
+Map.addLayer(Leon)
+
+// CALCULATE ANNUAL PRECIPITATION IN LEON COUNTY FROM USING GRIDMET AS DATA SOURCE
+var annualPrecip = ee.ImageCollection.fromImages(
+  years.map(function (year) {
+    var annual = GRIDMET
+        .filter(ee.Filter.calendarRange(year, year, 'year'))
+        .sum();
+    return annual
+        .set('year', year)
+        .set('system:time_start', ee.Date.fromYMD(year, 1, 1));
+}));
+
+print(annualPrecip)
+
+var chart = ui.Chart.image.seriesByRegion({
+  imageCollection: annualPrecip,
+  regions: counties,
+  reducer: ee.Reducer.mean(),
+  band: 'pr',
+  scale: 4000,
+  xProperty: 'system:time_start',
+  seriesProperty: 'COUNTY'
+}).setOptions({
+  title: 'Annual Precipitation (mm) in Leon County'
+}).setChartType('ColumnChart')
+
+print(chart)
+
+
+// // Define the chart and print it to the console.
+// var chart = ui.Chart.image
+//                 .doySeriesByYear({
+//                   imageCollection: GRIDMET,
+//                   bandName: 'pr',
+//                   region: Leon,
+//                   regionReducer: ee.Reducer.mean(),
+//                   scale: 4000,
+//                   sameDayReducer: ee.Reducer.mean(),
+//                   startDay: 1,
+//                   endDay: 365
+//                 })
+//                 .setOptions({
+//                   title: 'Average Precipitation (mm) by Day and Year - Leon County',
+//                   hAxis: {
+//                     title: 'Day of year',
+//                     titleTextStyle: {italic: false, bold: true}
+//                   },
+//                   vAxis: {
+//                     title: 'Precipitation (mm)',
+//                     titleTextStyle: {italic: false, bold: true}
+//                   },
+//                   lineWidth: 5,
+//                   //colors: ['39a8a7', '9c4f97'],
+//                 });
+// print(chart);
+
+// // Define the chart and print it to the console.
+// var chart =
+//     ui.Chart.image
+//         .series({
+//           imageCollection: Precip,
+//           region: Leon,
+//           reducer: ee.Reducer.mean(),
+//           scale: 4000,
+//           xProperty: 'system:time_start'
+//         })
+//         .setSeriesNames(['Pr'])
+//         // .setOptions({
+//         //   title: 'Average Vegetation Index Value by Date for Forest',
+//         //   hAxis: {title: 'Date', titleTextStyle: {italic: false, bold: true}},
+//         //   vAxis: {
+//         //     title: 'Vegetation index (x1e4)',
+//         //     titleTextStyle: {italic: false, bold: true}
+//         //   },
+//         //   lineWidth: 5,
+//         //   colors: ['e37d05', '1d6b99'],
+//         //   curveType: 'function'
+//         // });
+// print(chart);

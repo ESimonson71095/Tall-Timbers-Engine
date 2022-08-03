@@ -1,0 +1,249 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var SE_Counties = ee.FeatureCollection("users/esimonson/Permits/SE_Counties_w_PermitData_Acres_FINAL"),
+    SE_AOI = ee.FeatureCollection("users/esimonson/AOIs/Southeast_States_AOI"),
+    GRIDMET = ee.ImageCollection("IDAHO_EPSCOR/GRIDMET"),
+    DAYMET = ee.ImageCollection("NASA/ORNL/DAYMET_V4");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// DATA PRE PROCESSING
+
+GRIDMET = GRIDMET.select('pr','tmmx')
+DAYMET = DAYMET.select('prcp','tmax')
+
+// IMPORT US STATES
+var table = ee.FeatureCollection("TIGER/2018/States")
+var FL = table.filterMetadata('STUSPS', 'equals', 'CA')
+
+var colors = {'transparent': '#11ffee00', 'gray': '#F8F9FA'};
+
+// EXTRACT STATE NAMES TO A VARIABLE
+var StateNames = SE_Counties.aggregate_array('STATE_NAME').distinct().sort()
+var CountyNames = SE_Counties.aggregate_array('COUNTY').sort()
+
+// DATES TO BE USED FOR FILTERING IMAGE COLLECTION
+var now = Date.now(); 
+var today = ee.Date(now);
+var Jan1_2020 = ee.Date('2020-01-01')
+var Dec31_2020 = ee.Date('2020-12-31')
+print(today)
+
+var month_ago = today.advance(-1,'month')
+var two_months_ago = today.advance(-2,'month')
+
+var one_month_time = ee.DateRange(month_ago,today)
+var two_months_time = ee.DateRange(two_months_ago,today)
+var last_year = ee.DateRange(Jan1_2020, Dec31_2020)
+
+var dateList = [
+  {label: 'The Last Month', value: one_month_time},
+  {label: 'The Last Two Months', value: two_months_time},
+  {label: 'The Last Year', value: last_year}
+  ]
+
+print(dateList)
+
+// PROCESS GRIDMET TO ANNUAL SUMS 
+// SET START AND END YEAR
+var startyear = 2010;
+var endyear = 2020;
+ 
+// MAKE DATE OBJECTS FROM THE START AND END YEARS
+var startdate = ee.Date.fromYMD(startyear, 1, 1);
+var enddate = ee.Date.fromYMD(endyear + 1, 1, 1);
+ 
+// MAKE A LIST WITH THE START AND END YEARS
+var years = ee.List.sequence(startyear, endyear);
+
+// CALCULATE ANNUAL PRECIPITATION IN LEON COUNTY FROM USING GRIDMET AS DATA SOURCE
+var annualPrecip = ee.ImageCollection.fromImages(
+  years.map(function (year) {
+    var annual = GRIDMET
+        .filter(ee.Filter.calendarRange(year, year, 'year'))
+        .sum();
+    return annual
+        .set('year', year)
+        .set('system:time_start', ee.Date.fromYMD(year, 1, 1));
+}));
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// UI WIDGETS SECTION 
+
+// CREATE A CHART PANEL (INITIALLY HIDDEN) FOR TIME SERIES PLOTTING
+var chartPanel1 = ui.Panel({
+  style: {height: '280px', width: '600px', position: 'bottom-right', shown: false}
+  });
+
+// ADD A CLOSE BUTTON TO THE CHART PANEL
+var Close = ui.Button('Close', function() {
+      chartPanel1.style().set({shown: false});});
+chartPanel1.add(Close)
+
+// AND ADD THE CHART PANEL TO THE MAP
+Map.add(chartPanel1)
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// SELECT A STATE FROM DROP DOWN SELECT WIDGET
+var StateSelect = ui.Select({
+  items: StateNames.getInfo(),
+  placeholder: ('Select a State'),
+  style: {width: '290px'},
+  onChange: function getState(key) {
+    //print(key)
+    var selectedpolys = SE_Counties.filterMetadata('STATE_NAME','equals',key)
+    var selectedCountyNames = selectedpolys.aggregate_array('COUNTY').sort()
+    //print(selectedCountyNames)
+    
+    // FUNCTION TO ADD SELECTED COUNTY NAMES TO ITEMS (LIST) OF THE COUNTY SELECT WIDGET
+    selectedCountyNames.evaluate(function(values) {
+    CountySelect.items().reset(values);
+    CountySelect.setValue(values[0], false);
+})
+    
+    return key
+  }
+});
+
+// SELECT A COUNTY FROM DROP DOWN SELECT WIDGET
+var CountySelect = ui.Select({
+  placeholder: ('Select a County'),
+  style: {width: '290px'},
+  onChange: function (value) {
+    return value
+  }
+});
+
+var bandSelect = ui.Select({
+  onChange: function(value) {
+    return value
+  }
+});
+
+// Make a drop down menu of images.
+var imageSelect = ui.Select({
+  items: [
+    {label: 'GRIDMET', value: GRIDMET},
+    {label: 'DAYMET', value: DAYMET}
+  ],
+  onChange: function(value) {
+    
+    var img = value.mean()
+    // Asynchronously get the list of band names.
+    img.bandNames().evaluate(function(bands) {
+      // Display the bands of the selected image.
+      bandSelect.items().reset(bands);
+      // Set the first band to the selected band.
+      bandSelect.setValue(bandSelect.items().get(0));
+    });
+  return value
+  }
+});
+
+var dateSelect = ui.Select({
+  items: dateList,
+  placeholder: 'Select Time Range',
+  onChange: function(value){
+    datePanel.clear()
+    
+    var dateLabel = ui.Label({
+    value: 'Selected Date Range...'
+    })
+    datePanel.add(dateLabel)
+
+    var data = imageSelect.getValue()
+    
+    // DATE MANAGEMENT
+    var startDate = value.start()
+    // var startDate1 = startDate.advance(1,'day')
+    // print(startDate1)
+    var endDate = value.end()
+    var startUTC = startDate.format(null,'UTC').slice(0,10)
+    var endUTC = endDate.format(null,'UTC').slice(0,10)
+    var startDateStr = ((((startUTC.slice(5,7)).cat('/')).cat(startUTC.slice(8,10))).cat('/')).cat(startUTC.slice(2,4))
+    var endDateStr = ((((endUTC.slice(5,7)).cat('/')).cat(endUTC.slice(8,10))).cat('/')).cat(endUTC.slice(2,4))
+    startDateStr.cat(' to ').cat(endDateStr).evaluate(function(val){dateLabel.setValue('From: ' + val)});
+    return value
+  }
+})
+
+var button = ui.Button({
+  label: 'Get Time Series',
+  onClick: function(){
+  
+  if (!chartPanel1.style().get('shown')) {
+  chartPanel1.style().set('shown', true);
+  }
+
+  var selected = CountySelect.getValue()
+  var county = ee.Feature(SE_Counties.filter(ee.Filter.eq('COUNTY', selected)).first())
+  var data = imageSelect.getValue()
+  var dateRange = dateSelect.getValue()
+  var startDate = dateRange.start()
+  var endDate = dateRange.end()
+  var band = bandSelect.getValue()
+  //var variable = data.select(band)
+  var IC = data.filterDate(startDate,endDate)
+  
+  var IC_out = IC.mean().clip(county)
+  
+  Map.layers().set(0,IC_out)
+  Map.centerObject(county)
+  
+  var chart = ui.Chart.image.seriesByRegion({
+  imageCollection: IC,
+  regions: county,
+  reducer: ee.Reducer.mean(),
+  band: band,
+  scale: 4000,
+  xProperty: 'system:time_start',
+  //seriesProperty: 'COUNTY'
+  }).setOptions({
+  title: band+' in '+selected
+  })//.setChartType('ColumnChart')
+  chartPanel1.clear().add(chart).add(Close)
+  }
+})
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// UI PANEL SECTION
+
+//Create master panel in which to arrange widgets
+var panel = ui.Panel({style: {width: '320px'}})
+    .add(ui.Label({
+    value: 'GRIDMET Summary Tool', //create title for whole UI
+    style: {fontWeight: 'bold', fontSize: '22px', color: '#228B22'}
+    })
+  );
+
+  
+//BEGIN call functions to create user interface//
+panel.add(ui.Label('1) Select Area of Interest', {fontWeight: 'bold'})) 
+panel.add(StateSelect)
+panel.add(CountySelect)
+
+
+panel.add(ui.Label('2) Select Dataset of Interest',{fontWeight: 'bold'}))
+panel.add(imageSelect);
+panel.add(bandSelect);
+
+panel.add(ui.Label('3) Select Temporal Period of Interest',{fontWeight: 'bold'}))
+panel.add(dateSelect)
+
+var datePanel = ui.Panel({style: {backgroundColor: colors.transparent}});
+panel.add(datePanel)
+
+
+
+
+panel.add(ui.Label('4) Get Time Series Chart',{fontWeight: 'bold'}))
+panel.add(button)
+
+
+
+ui.root.add(panel); //add panel to root
+//END call functions to create user interface//
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+

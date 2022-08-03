@@ -1,0 +1,804 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var SE_Wildfires = ee.FeatureCollection("users/esimonson/Wildfires/Southeast_Annual_Wildfires_1994_2019"),
+    SE_BurnPermits = ee.FeatureCollection("users/esimonson/Permits/SE_BurnPermits_2010to2020"),
+    SE_Counties = ee.FeatureCollection("users/esimonson/Permits/SE_Counties_w_PermitData_Acres_FINAL"),
+    SE_AOI = ee.FeatureCollection("users/esimonson/AOIs/Southeast_States_AOI"),
+    PAD_SE = ee.FeatureCollection("users/esimonson/AOIs/PAD_Public_SE"),
+    Density_Public = ee.Image("users/esimonson/Permits/SE_BurnPermits_Public_Density"),
+    NLCD = ee.ImageCollection("USGS/NLCD_RELEASES/2016_REL"),
+    NoData = ee.Image("users/esimonson/Fire_History_CONUS/CONUS_BA_90BP_1994"),
+    FRQ = ee.Image("users/esimonson/SE_FHM/FRQ_Fire_16bit");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// DATA PRE PROCESSING
+
+// FILTER TO GET ONLY WILDFIRES FROM 2010 - 2019
+var SE_Wildfires = SE_Wildfires.filter(ee.Filter.gt('FireYear', 2009));
+
+// CREATE BLANK (NO DATA) IMAGE FOR UI
+var NoDataMask = NoData.gt(1)
+var FRQ_Mask = FRQ.gt(1)
+var NoData = NoData.updateMask(NoDataMask)
+var FRQ = FRQ.updateMask(FRQ_Mask).clip(SE_AOI)
+
+// CREATE BLANK (NO DATA) IMAGE FOR UI
+var NoDataMask2 = Density_Public.gt(50)
+var Density_Public = Density_Public.updateMask(NoDataMask2)
+
+// CREATE EMPTY IMAGE TO PAIN FEATURES INTO
+var empty = ee.Image().byte();
+
+// CREATE OUTLINE IMAGE FOR FEATURE COLLECTION
+var outline = empty.paint({
+  featureCollection: SE_Counties,
+  color: 1,
+  width: 3
+});
+
+var PAD_SE_poly = empty.paint({
+  featureCollection: PAD_SE,
+  color: 1,
+  //width: 2
+});
+
+// SET DATE VARIABLES
+var startDate = ee.Date('2010-01-01');
+var newDate = new Date();
+var endDate = ee.Date(newDate).advance(-1,'day');
+var initialStart = ee.Date(newDate).advance(-3, 'day');
+var initialEnd = ee.Date(newDate).advance(-2, 'day');
+
+// IMPORT FIRMS COLLECTION
+var firms = ee.ImageCollection('FIRMS')
+  .filterDate(startDate, newDate)
+  .select('T21');
+  
+// create function to crop with table boundaries
+var table_bounds = function(image) {
+  // Crop by table extension
+  return image.clip(SE_AOI);
+};
+
+// CLIP FIRMS COLLECTION TO SOUTHEAST
+var FIRMS_Clipped = firms.map(table_bounds);
+  
+// SET FIRMS VISUALIZATION PARAMETERS
+var firmsVis = {
+  min: 325.0,
+  max: 400.0,
+  palette: ['red', 'orange', 'yellow'],
+};
+
+// EXTRACT STATE NAMES TO A VARIABLE
+var StateNames = SE_Counties.aggregate_array('STATE_NAME').distinct().sort()
+var CountyNames = SE_Counties.aggregate_array('COUNTY').distinct().sort()
+
+// IMPORT NLCD DATA
+NLCD = NLCD.filterDate('2016-01-01','2016-12-31').mosaic().clip(SE_AOI)
+
+// DEFINE SOME CONSTANTS
+var PERMITS_PUBLIC = 'Permits on Public Lands';
+
+// RENAME BANDS FOR EACH OF THE PRIORITIZATION LAYERS
+var Density_Public = Density_Public.select(['b1'],['PermitDensity'])
+var FRQ = FRQ.select(['b1'],['FRQ'])
+var NLCD = NLCD.select(['landcover'],['landcover'])
+
+// MERGE THE IMAGES INTO AN IMAGE COLLECTION
+var merged = ee.ImageCollection([FRQ,Density_Public,NLCD])
+
+// CONVERT IMAGE COLLECTION TO IMAGE
+var PrioLayer = merged.toBands();
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// CONFIGURE LAYER PROPERTIES
+var layerProperties = {
+  'Fire Frequency': {
+    name: '0_FRQ',
+    visParams: {min: 2, max: 26, palette: ['ffd8a8','ffd8a8','ffa344','ffa344','ffa344','ff0000','ff0000','ff0000','a90000','a90000',
+    'a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000','a90000']},
+    legend: [{'2-3 fires': 'ffd8a8'},{'4-6 fires': 'ffa344'},{'7-9 fires': 'ff0000'},{'10-26 fires': 'a90000'}],
+    defaultVisibility: true
+  },
+  // 'Permits on Public Lands': {
+  //   name: '1_PermitDensity',
+  //   visParams: {min: 1, max: 837, palette: ['4900ff','0009ff','00fffe','00ff12','fff600','ff8c00','ff0000']},
+  //   legend:
+  //       [{'1': '020aff'},{'2': '00a1ff'},{'3': '00f3ff'},{'4': '33ff00'},{'5': 'fff700'},
+  //       {'6': 'ffa500'},{'7': 'ff5e00'},{'8': 'ff0000'},{'9': '610000'}],
+  //   defaultVisibility: false
+  // },
+  // 'National Land Cover Database': {
+  //   name: '2_landcover',
+  //   visParams: {min: 0, max: 95, palette: 
+  // ['000000','000000','000000','000000','000000','000000','000000','000000','000000','000000','000000','466b9f',
+  //   'd1def8','000000','000000','000000','000000','000000','000000','000000','000000','dec5c5','d99282','eb0000','ab0000','000000',
+  //   '000000','000000','000000','000000','000000','b3ac9f','000000','000000','000000','000000','000000','000000','000000','000000',
+  //   '000000','68ab5f','1c5f2c','b5c58f','000000','000000','000000','000000','000000','000000','000000','af963c','ccb879','000000',
+  //   '000000','000000','000000','000000','000000','000000','000000','000000','000000','000000','000000','000000','000000','000000',
+  //   '000000','000000','000000','dfdfc2','d1d182','a3cc51','82ba9e','000000','000000','000000','000000','000000','000000','dcd939',
+  //   'ab6c28','000000','000000','000000','000000','000000','000000','000000','b8d9eb','000000','000000','000000','000000','6c9fb8']},
+  //   legend: [{'Open water': '466b9f'},{'Perennial ice/snow': 'd1def8'},{'Developed, open space': 'dec5c5'},{'Developed, low intensity': 'd99282'},
+  //           {'Developed, medium intensity': 'eb0000'},{'Developed, high intensity': 'ab0000'},{'Barren land (rock/sand/clay)': 'b3ac9f'},
+  //           {'Deciduous forest': '68ab5f'},{'Evergreen forest': '1c5f2c'},{'Mixed forest': 'b5c58f'},{'Dwarf scrub': 'af963c'},
+  //           {'Shrib/scrub': 'ccb879'},{'Grassland/herbaceous': 'dfdfc2'},{'Sedge/herbaceuous': 'd1d182'},{'Lichens': 'a3cc51'},{'Moss': '82ba9e'},
+  //           {'Pasture/hay': 'dcd939'},{'Cultivated crops': 'ab6c28'},{'Woody wetlands': 'b8d9eb'},{'Emergent herbaceous wetlands': '6c9fb8'},],
+  //   defaultVisibility: false
+  // }
+};
+
+// Define a dictionary that associates property names with values and labels.
+var countyInfo = {
+  'ACRE_2010': {v: 2010, f: '10'},
+  'ACRE_2011': {v: 2011, f: '11'},
+  'ACRE_2012': {v: 2012, f: '12'},
+  'ACRE_2013': {v: 2013, f: '13'},
+  'ACRE_2014': {v: 2014, f: '14'},
+  'ACRE_2015': {v: 2015, f: '15'},
+  'ACRE_2016': {v: 2016, f: '16'},
+  'ACRE_2017': {v: 2017, f: '17'},
+  'ACRE_2018': {v: 2018, f: '18'},
+  'ACRE_2019': {v: 2019, f: '19'},
+  'ACRE_2020': {v: 2020, f: '20'}
+};
+
+var xPropValDict = {};  // Dictionary to codify x-axis property names as values.
+var xPropLabels = [];   // Holds dictionaries that label codified x-axis values.
+for (var key in countyInfo) {
+  xPropValDict[key] = countyInfo[key].v;
+  xPropLabels.push(countyInfo[key]);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// MAP PANEL CONFIGURATION
+
+// CREATE A MAP PANEL
+var mapPanel = ui.Map();
+mapPanel.setOptions('HYBRID');
+mapPanel.style().set({cursor: 'crosshair'});
+mapPanel.setCenter(-84.20875, 30.6565, 8)
+
+
+// ADD HIDDEN CHART PANEL FOR TIME SERIES PLOTTING
+var chartPanel1 = ui.Panel({
+  style:
+      {height: '280px', width: '600px', position: 'bottom-right', shown: false}
+});
+
+// ADD CLOSE BUTTON FUNCTIONALITY TO REMOVE THE CHART FROM THE MAP
+var Close = ui.Button('Close', function() {
+      chartPanel1.style().set({shown: false});});
+chartPanel1.add(Close)
+
+mapPanel.add(chartPanel1)
+
+// ADD FIRE HISTORY LAYERS TO MAP
+var opacityChangingLayers = []
+for (var key in layerProperties) {
+  var layer = layerProperties[key];
+  var image = PrioLayer.select(layer.name).visualize(layer.visParams);
+  var mapLayer = ui.Map.Layer(image, {}, key, layer.defaultVisibility);
+  mapPanel.add(mapLayer)
+  opacityChangingLayers.push(mapLayer);
+}
+
+// ADD THE MAP PANEL TO THE INTERACE
+ui.root.widgets().reset([mapPanel]);
+ui.root.setLayout(ui.Panel.Layout.flow('horizontal'));
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// FUNCTIONS AND WIDGETS
+
+// SELECT A STATE FROM DROP DOWN SELECT WIDGET
+var StateSelect = ui.Select({
+  items: StateNames.getInfo(),
+  placeholder: ('Select a State'),
+  style: {width: '260px', padding: '0px 0px 0px 10px'},
+  onChange: function getState(key) {
+    //print(key)
+    var selectedpolys = SE_Counties.filterMetadata('STATE_NAME','equals',key)
+    var selectedCountyNames = selectedpolys.aggregate_array('COUNTY').sort()
+    //print(selectedCountyNames)
+    
+    // FUNCTION TO ADD SELECTED COUNTY NAMES TO ITEMS (LIST) OF THE COUNTY SELECT WIDGET
+    selectedCountyNames.evaluate(function(values) {
+    CountySelect.items().reset(values);
+    CountySelect.setValue(values[0], false);
+})
+    
+    return key
+  }
+});
+
+// SELECT A COUNTY FROM DROP DOWN SELECT WIDGET
+var CountySelect = ui.Select({
+  placeholder: ('Select a County'),
+  style: {width: '260px',padding: '0px 0px 0px 10px', },
+  onChange: function (value) {
+    var selection = ee.Feature(SE_Counties.filter(ee.Filter.eq('COUNTY', value)).first());
+    var shown = true; // true or false, 1 or 0 
+    var opacity = 0.5; // number [0-1]
+    var Land_Bounds = ui.Map.Layer(selection, {color: 'black'}, 'US County Boundary', shown, opacity);
+    //mapPanel.layers().set(1, Land_Bounds, {}, 'US County Boundary')
+    mapPanel.centerObject(selection)
+    return value
+  }
+});
+
+// // CREATE AOI SELECTION WIDGET
+// var select = ui.Select({
+//   items: CountyNames.getInfo(),
+//   placeholder: ('Choose County of Interest'),
+//   style: {width: '290px'},
+//   onChange: function(keys) {
+    
+//     var selection = ee.Feature(SE_Counties.filter(ee.Filter.eq('COUNTY', keys)).first());
+//     var shown = true; // true or false, 1 or 0 
+//     var opacity = 0.5; // number [0-1]
+//     var Land_Bounds = ui.Map.Layer(selection, {color: 'black'}, 'US County Boundary', shown, opacity);
+//     //mapPanel.layers().set(1, Land_Bounds, {}, 'US County Boundary')
+//     mapPanel.centerObject(selection)
+    
+
+//   }
+// });
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// TOOL PANEL CONGIFUGRATION
+
+// Add a title and some explanatory text to a side panel.
+var header = ui.Label('Southeast Rx Fire Explorer', {fontSize: '22px', color: 'red'});
+var RX_logo = ee.Image("users/esimonson/Logos/SE_BurnPermit_Logo");
+var RX_branding = ui.Thumbnail({image:RX_logo,params:{bands:['b1','b2','b3'],min:0,max:255},style:{width:'270px',height:'90px'}});
+var text = ui.Label(
+    'An application developed by Tall Timbers Geospatial Center to monitor, quantify, and visualize prescribed fire activities in the Southeast',
+    {fontSize: '11px'});
+
+var toolPanel = ui.Panel({
+  //widgets : ([header,text]),
+  layout: ui.Panel.Layout.flow('vertical'),
+  style: {width: '315px', position: 'bottom-left'}
+});
+// Default
+ui.root.widgets().add(toolPanel);
+
+// VISIT AOI PANEL
+var locationPanel = ui.Panel([
+  ui.Label('Visit Southeast Counties', {'font-size': '24px'}), StateSelect, CountySelect
+]);
+
+var openingPanel = ui.Panel({style: {border: '1px solid black'}});
+var layerPanel = ui.Panel({style: {border: '1px solid black'}});
+var renderPanel = ui.Panel({style: {border: '1px solid black'}});
+var visitlandsPanel = ui.Panel({style: {border: '1px solid black'}});
+var analysisPanel = ui.Panel({style: {border: '1px solid black'}});
+var GRIDMETPanel = ui.Panel({style: {border: '1px solid black'}});
+var closingPanel = ui.Panel({style: {border: '1px solid black'}});
+var activefirePanel = ui.Panel({style: {border: '1px solid black'}});
+
+visitlandsPanel.add(locationPanel);
+//openingPanel.add(header)
+openingPanel.add(RX_branding)
+openingPanel.add(text)
+
+
+toolPanel.add(openingPanel)
+toolPanel.add(layerPanel)
+toolPanel.add(visitlandsPanel)
+toolPanel.add(renderPanel)
+toolPanel.add(activefirePanel)
+toolPanel.add(analysisPanel)
+toolPanel.add(GRIDMETPanel)
+toolPanel.add(closingPanel)
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// SELECT LAYER SECTION
+layerPanel.add(ui.Label('View Different Layers', {'font-size': '24px'}));
+
+// DEFINE VARIABLES THAT WILL BE USED IN THE LAYER SELECTION 
+var selectItems = Object.keys(layerProperties);
+var layerSelect
+
+// DEFINE THE PULL DOWN MENU - CHANGING THE LAYER WILL ALSO CHANGE THE LEGEND
+var layerSelect = ui.Select({
+  items: selectItems,
+  value: selectItems[0],
+  onChange: function(selected) {
+    opacityChangingLayers.forEach(function(element, index) {
+      element.setShown(selected == element.getName());
+    });
+    setLegend(layerProperties[selected].legend);
+  }
+});
+
+// ADD THE LAYER SELECTION WIDGET TO ITS RESPECTIVE PANEL
+layerPanel.add(layerSelect);
+
+// Create the legend.
+// Define a panel for the legend and give it a tile.
+var legendPanel = ui.Panel({
+  style:
+      {fontWeight: 'bold', fontSize: '10px', margin: '0 0 0 8px', padding: '0'}
+});
+layerPanel.add(legendPanel);
+
+var legendTitle = ui.Label(
+    'Legend',
+    {fontWeight: 'bold', fontSize: '10px', margin: '0 0 4px 0', padding: '0'});
+legendPanel.add(legendTitle);
+
+// Define an area for the legend key itself.
+// This area will be replaced every time the layer pulldown is changed.
+var keyPanel = ui.Panel();
+legendPanel.add(keyPanel);
+
+function setLegend(legend) {
+  // Loop through all the items in a layer's key property,
+  // creates the item, and adds it to the key panel.
+  keyPanel.clear();
+  for (var i = 0; i < legend.length; i++) {
+    var item = legend[i];
+    var name = Object.keys(item)[0];
+    var color = item[name];
+    var colorBox = ui.Label('', {
+      backgroundColor: color,
+      // Use padding to give the box height and width.
+      padding: '8px',
+      margin: '0'
+    });
+    // Create the label with the description text.
+    var description = ui.Label(name, {margin: '0 0 4px 6px'});
+    keyPanel.add(
+        ui.Panel([colorBox, description], ui.Panel.Layout.Flow('horizontal')));
+  }
+}
+
+// Set the initial legend.
+setLegend(layerProperties[layerSelect.getValue()].legend);
+
+// CREATE VISIBILITY CHECKBOX AND OPACITY SLIDER
+// IF THE CHECKBOX IS CLICKED OFF, LAYER SELECTION AND VISUALIZATION ARE DISABLED
+var checkbox = ui.Checkbox({
+  label: 'Opacity',
+  value: true,
+  onChange: function(value) {
+    var selected = layerSelect.getValue();
+    // SET RASTER LAYERS TO HIDDEN
+  opacityChangingLayers.forEach(function(element, index) {
+      element.setShown(selected == element.getName() ? value : false);
+    });
+  // DISABLE SET LAYER
+    layerSelect.setDisabled(!value);
+  }
+});
+
+// CREATE AN OPACITY SLIDER
+var opacitySlider = ui.Slider({
+  min: 0,
+  max: 1,
+  value: 1,
+  step: 0.01,
+});
+
+// FUNCTION THAT SETS LAYER OPACITY BASED ON USER INPUT FROM SLIDER
+opacitySlider.onSlide(function(value) {
+  opacityChangingLayers.forEach(function(element, index) {
+    element.setOpacity(value);
+  });
+});
+
+// ADD THE CHECKBOX AND OPACITY SLIDER TO THE TOOL PANEL
+var viewPanel = ui.Panel([checkbox, opacitySlider], ui.Panel.Layout.Flow('horizontal'));
+layerPanel.add(viewPanel);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// RENDER BOUNDARIES SECTION
+renderPanel.add(ui.Label('Render Boundaries', {'font-size': '24px'}));
+
+// DEFINE SOME CONSTANTS
+var County_lyr = ui.Map.Layer(outline, {palette: '000000'}, 'Southeast Counties');
+var PAD_SE_lyr = ui.Map.Layer(PAD_SE_poly, {palette: '30A94A'}, 'Protected Areas');
+
+
+
+var countyCheck = ui.Checkbox({
+  label: 'Southeast Counties',
+  value: true,
+  onChange: function(checked) {
+    if (checked) {
+    County_lyr.setShown(true)
+    }
+    else {
+    County_lyr.setShown(false)
+    }
+  }
+})
+
+var padCheck = ui.Checkbox({
+  label: 'Protected Areas',
+  value: false,
+  onChange: function(checked) {
+    if (checked) {
+    PAD_SE_lyr.setShown(true)
+    }
+    else {
+    PAD_SE_lyr.setShown(false)
+    }
+  }
+})
+
+// ADD RENDER BUTTONS TO PANEL
+renderPanel.add(countyCheck)
+renderPanel.add(padCheck)
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// ACTIVE FIRE SECTION
+var layers = []
+var layer
+
+var slider = ui.DateSlider({
+    start: startDate, 
+    end: endDate, 
+    period: 1, // Every day
+    onChange: renderDateRange,
+    //style: sliderStyle
+  })
+
+// FUNCTION THAT RESPONDS TO THE SLIDER
+function renderDateRange(dateRange) {
+  var imageFIRMS = FIRMS_Clipped
+    .filterDate(dateRange.start(), dateRange.end());
+  var layer = ui.Map.Layer(imageFIRMS, firmsVis, "FIRMS",1,1);
+  mapPanel.layers().set(2, layer,{},'MODIS Active Fire');
+  layers.push(layer)
+}
+
+var opacitySlider = ui.Slider({
+  min: 0,
+  max: 1,
+  value: 1,
+  step: 0.01,
+});
+
+var label2 = ui.Label('Set Opacity');
+
+opacitySlider.onSlide(function(value) {
+  layers.forEach(function(element) {
+    element.setOpacity(value);
+  });
+});
+
+
+// Create a panel that contains both the slider and the label.
+var SliderPanel = ui.Panel({
+  widgets: [slider],
+  layout: ui.Panel.Layout.flow('horizontal'),
+  style: {
+    position: 'bottom-center',
+    shown: false,
+    padding: '7px'
+  }
+});
+
+
+
+var CloseSlider = ui.Button('Close', function() {
+      SliderPanel.style().set({shown: false});
+      mapPanel.layers().set(2, layers[layer], {}, '', false);
+});
+
+var SliderPanel2 = ui.Panel({
+  widgets: [label2, opacitySlider, CloseSlider],
+  layout: ui.Panel.Layout.flow('vertical'),
+  style: {
+    margin: '10px'
+  }
+});
+
+var SliderPanel3 = ui.Panel({
+  widgets: [CloseSlider],
+  //layout: ui.Panel.Layout.flow('vertical')
+  style: {
+    margin: '1px'
+  }
+});
+
+SliderPanel.add(SliderPanel2)
+//SliderPanel.add(SliderPanel3)
+
+// Add the panel to the map.
+mapPanel.add(SliderPanel, false);
+
+var renderButton = ui.Button({
+  label: 'Render MODIS Data Slider',
+//  value: false,
+  onClick: function(value) {
+    SliderPanel.style().set({shown: true});
+  }
+});
+
+activefirePanel.add(ui.Label('Thermal Anomalies', {'font-size': '24px'}));
+activefirePanel.add(renderButton);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// BOTTON RIGHT CHART PANEL FOR COUNTY PERMIT COUNTS
+
+// Suitability Charts by Easement
+var options = {
+title: 'Acreage by County (2010-2020)',
+fontSize: 12,
+hAxis: {},
+vAxis: {viewWindow: {min: 0}},
+legend: {position: 'none'},
+};
+
+var COUNTIES_STYLE = {color: '000000', fillColor: '00000000'};
+var HIGHLIGHT_STYLE = {color: 'ff0000', fillColor: '00000000'};
+
+// A list of points the user has clicked on, as [lon,lat] tuples.
+var selectedCounties = [];
+
+// Returns the list of countries the user has selected.
+function getSelectedCounties() {
+  return SE_Counties.filterBounds(ee.Geometry.MultiPoint(selectedCounties));
+}
+
+// Makes a bar chart of the given FeatureCollection of countries by name.
+function makeResultsBarChart(counties) {
+  var chart = ui.Chart.feature.byFeature({features: counties.select(['TOTAL_ACRE','COUNTY']),xProperty: 'COUNTY',})
+    .setSeriesNames(['Total Reported Acres'])
+    .setChartType('ColumnChart')
+    .setOptions({
+          title: 'Burn Permit Acreage by County (2010-2020)',
+           hAxis:
+               {gridlines: {count: 0}},
+          vAxis: {
+            title: 'Acreage of Burn Pemits',
+            titleTextStyle: {italic: false, bold: true},
+            gridlines: {count: 0}
+          },
+          // colors: [
+          //   '604791', '1d6b99', '39a8a7', '0f8755', '76b349', 'f0af07',
+          //   'e37d05', 'cf513e', '96356f', '724173', '9c4f97', '696969'
+          // ]
+        });
+  chart.style().set({stretch: 'both'});
+  return chart
+}
+
+// Makes a bar chart of the given FeatureCollection of countries by name.
+function makeResultsBarChart3(counties) {
+  var chart =
+    ui.Chart.feature
+        .byFeature({
+          features: counties.select('ACRE_[0-9]{2}','COUNTY'),
+          xProperty: 'COUNTY'
+        })
+        .setSeriesNames([
+          'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct',
+          'Nov', 'Dec'
+        ])
+        .setChartType('ColumnChart')
+        .setOptions({
+          title: 'Monthly Burn Permit Acreage by County (2010-2020)',
+          hAxis:
+            {gridlines: {count: 0}},
+          vAxis: {
+            title: 'Acreage of Burn Permits',
+            titleTextStyle: {italic: false, bold: true},
+            gridlines: {count: 0}
+          },
+          colors: [
+            '604791', '1d6b99', '39a8a7', '0f8755', '76b349', 'f0af07',
+            'e37d05', 'cf513e', '96356f', '724173', '9c4f97', '696969'
+          ],
+          isStacked: 'absolute'
+        });
+  return chart
+}
+
+// Makes a bar chart of the given FeatureCollection of countries by name.
+function makeResultsBarChart2(counties) {
+  var chart =
+    ui.Chart.feature
+        .byFeature({
+          features: counties.select('ACRE_PUB','ACRE_PRIV','COUNTY'),
+          xProperty: 'COUNTY'
+        })
+        .setSeriesNames([
+          'Public','Private'
+        ])
+        .setChartType('ColumnChart')
+        .setOptions({
+          title: 'Burn Permit Acreage by County and Land Type (2010-2020)',
+          hAxis:
+            {gridlines: {count: 0}},
+          vAxis: {
+            title: 'Acreage of Burn Permits',
+            titleTextStyle: {italic: false, bold: true},
+            gridlines: {count: 0}
+          },
+          colors: [
+            '30A94A', 'FF5733'
+          ],
+          //isStacked: 'absolute'
+        });
+  return chart
+}
+
+function makeResultsChart4(counties){
+  var chart =
+    ui.Chart.feature
+        .byProperty({
+          features: counties,
+          xProperties: xPropValDict,
+          seriesProperty: 'COUNTY',
+        })
+        //.setChartType('ScatterChart')
+        .setOptions({
+                  title: 'Annual Burn Permit Acreage by County',
+                  hAxis: {
+                    title: 'Year',
+                    titleTextStyle: {italic: false, bold: true},
+                    ticks: xPropLabels,
+                    gridlines: {count: 0}
+                  },
+                  vAxis: {
+                    title: 'Reported Acreage',
+                    titleTextStyle: {italic: false, bold: true},
+                    gridlines: {count: 0}
+                  },
+                  //colors: ['f0af07', '0f8755', '76b349'],
+                  lineSize: 5,
+                  pointSize: 0
+                });
+  return chart
+}
+
+// Updates the map overlay using the currently-selected countries.
+function updateOverlay() {
+  var overlay = getSelectedCounties().style(HIGHLIGHT_STYLE);
+  mapPanel.layers().set(4, ui.Map.Layer(overlay));
+}
+
+// Updates the chart using the currently-selected charting function,
+function updateChart() {
+  var chartBuilder = chartTypeToggleButton.value;
+  var chart = chartBuilder(getSelectedCounties());
+  resultsPanel.clear().add(chart).add(buttonPanel);
+}
+
+// Clears the set of selected points and resets the overlay and results
+// panel to their default state.
+function clearResults() {
+  selectedCounties = [];
+  mapPanel.layers().remove(mapPanel.layers().get(4));
+  var instructionsLabel = ui.Label('Select counties to compare burn permits');
+  resultsPanel.widgets().reset([instructionsLabel]);
+}
+
+// Register a click handler for the map that adds the clicked point to the
+// list and updates the map overlay and chart accordingly.
+function handleMapClick(location) {
+  selectedCounties.push([location.lon, location.lat]);
+  updateOverlay();
+  updateChart();
+}
+mapPanel.onClick(handleMapClick);
+
+// A button widget that toggles (or cycles) between states.
+// To construct a ToggleButton, supply an array of objects describing
+// the desired states, each with 'label' and 'value' properties.
+function ToggleButton(states, onClick) {
+  var index = 0;
+  var button = ui.Button(states[index].label);
+  button.value = states[index].value;
+  button.onClick(function() {
+    index = ++index % states.length;
+    button.setLabel(states[index].label);
+    button.value = states[index].value;
+    onClick();
+  });
+  return button;
+}
+
+// Our chart type toggle button: the button text is the opposite of the
+// current state, since you click the button to switch states.
+var chartTypeToggleButton = ToggleButton(
+    [
+      {
+        label: 'Display Total Acreage by Month',
+        value: makeResultsBarChart,
+      },
+      {
+        label: 'Display Total Acreage by Land Type (Public vs. Private)',
+        value: makeResultsBarChart3,
+      },
+      {
+        label: 'Display Total Acreage by Year',
+        value: makeResultsBarChart2,
+      },
+      {
+        label: 'Display Total Acreage',
+        value: makeResultsChart4,
+      }
+    ],
+    updateChart);
+
+// A panel containing the two buttons .
+var buttonPanel = ui.Panel(
+    [ui.Button('Clear results', clearResults), chartTypeToggleButton],
+    ui.Panel.Layout.Flow('horizontal'), {margin: '0 0 0 auto', width: '500px'});
+
+var resultsPanel = ui.Panel({style: {position: 'bottom-right'}});
+mapPanel.add(resultsPanel);
+clearResults();
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// ANALYSIS PANEL
+analysisPanel.add(ui.Label('Permit Analysis', {'font-size': '24px'}));
+analysisPanel.add(ui.Label('Click on the county boundaries to compare total acreage reported from 2010-2020.', {fontSize: '11px'}))
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// GRIDMET PANEL
+GRIDMETPanel.add(ui.Label('GRIDMET Analysis', {'font-size': '24px'}));
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// CLOSING PANEL
+var logo = ee.Image("users/esimonson/Logos/Tall_Timbers_Logo");
+var branding = ui.Thumbnail({image:logo,params:{bands:['b1','b2','b3'],min:0,max:255},style:{width:'270px',height:'130px'}});
+
+closingPanel.add(ui.Label('Please contact Eli Simonson (esimonson@talltimbers.org) if you have any questions about this application', {fontSize: '11px'}))
+closingPanel.add(branding)
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// SOUTHEAST WILDFIRES
+var SE_Wildfire_Years = SE_Wildfires.aggregate_array('FireYrStr').sort()
+// Create an empty image into which to paint the features, cast to byte.
+var empty = ee.Image().byte();
+// Paint all the polygon edges with the same number and width, display.
+var outline = empty.paint({
+  featureCollection: SE_Wildfires,
+  color: 1,
+  width: 3
+});
+
+//Create AOI selection widget that searches fusion table by array of names
+var select_wildfire = ui.Select({
+  items: SE_Wildfire_Years.getInfo(),
+  placeholder: ('Select Year'),
+  //style: {width: '290px'},
+  onChange: function(keys) {
+    var selection = ee.Feature(SE_Wildfires.filter(ee.Filter.eq('FireYrStr', keys)).first());
+    var shown = true; // true or false, 1 or 0 
+    var opacity = 0.7; // number [0-1]
+    var selection_lyr = ui.Map.Layer(selection, {color: 'red'}, 'Southeast Wildfire', shown, opacity)
+    mapPanel.layers().set(5, selection_lyr);
+  }
+});
+
+var wildfirePanel =
+      ui.Panel({widgets: [ui.Label('Wildfire Polygons',{'font-size': '24px'}), select_wildfire]});
+
+activefirePanel.add(wildfirePanel)
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// ADD PLACEHOLDERS FOR DATA THAT WILL BE LOADED INTO MAP PANEL
+mapPanel.add(PAD_SE_lyr,{},'Protected Areas')
+mapPanel.addLayer(NoData,{},'FIRMS')
+mapPanel.add(County_lyr,{},'County Boundaries')
+mapPanel.addLayer(NoData,{},'Selected Counties')
+County_lyr.setShown(true)
+PAD_SE_lyr.setShown(false)

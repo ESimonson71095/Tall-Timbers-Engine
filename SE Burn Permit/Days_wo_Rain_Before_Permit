@@ -1,0 +1,82 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var TT = ee.FeatureCollection("users/esimonson/AOIs/TallTimbersResearchStation"),
+    BurnPermits = ee.FeatureCollection("users/esimonson/Permits/BurnPermits_TTRS"),
+    SE_BurnPermits = ee.FeatureCollection("users/esimonson/Permits/SE_BurnPermits_2010to2020"),
+    GRIDMET = ee.ImageCollection("IDAHO_EPSCOR/GRIDMET");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// REFERENCE
+// Center the map to an area of interest (ex. Tall Timbers)
+Map.setCenter(-84.20875, 30.6565, 12)
+
+// REFORMAT DATES FOR ALL POINTS IN THE SHAPEFILE
+var BurnPermits = BurnPermits.map(function (feature) {
+  return feature.set('system:time_start', ee.Date(feature.get('DATE')).millis())
+})
+var SE_BurnPermits = SE_BurnPermits.map(function (feature) {
+  return feature.set('system:time_start', ee.Date(feature.get('DATE')).millis())
+})
+
+// FILTER FOR TESTING
+var BurnPermits_SC = SE_BurnPermits.filter(ee.Filter.inList('STATE',['GA'])).filterDate('2017-01-01','2020-12-30')
+//var BurnPermits_SC = BurnPermits_SC
+
+// // PRINT 2020 PERMITS TO CONSOLE
+// print(Permits2020)
+
+// FILTER GRIDMET DATA TO DESIRED SPATIAL AND TEMPORAL EXTENTS
+var collection = GRIDMET
+    .filterBounds(TT)
+    .filterDate('2009-11-01','2020-12-30')
+    .select('pr')
+    .map(function(img) {
+      return img.addBands(img.metadata("system:time_start").rename("date"))
+    })
+var precipitation = collection.toArray()
+var PR_BIN = 1; 
+
+var getDryRunlength = function(f) {
+  var target = f.get("system:time_start")
+  
+  // Get the time-series of precipitation and dates as an array and split into two.
+  var pr = precipitation.reduceRegion(ee.Reducer.first(), f.geometry(), 1).get('array')
+  var precip = ee.Array(pr).slice(1, 0, 1).gte(PR_BIN).project([0])
+  var dates = ee.Array(pr).slice(1, 1, 2).project([0])
+  
+  // Mask off values after the feature's date
+  var mask = dates.lt(target)
+  precip = precip.mask(mask)
+
+  // Find the index and date of the last day of precip.
+  var size = precip.length().get([0])
+  var index = ee.Array(ee.List.sequence(0, size.subtract(1)))
+  var lastIndex = index.multiply(precip).reduce(ee.Reducer.max(), [0]).get([0])
+  var lastDate = ee.Date(dates.get([lastIndex]))
+  var daysDifference = ee.Date(target).difference(lastDate, 'day')
+  return f.set('daysSinceLastPrecip', daysDifference)
+}
+
+var final = BurnPermits_SC.map(getDryRunlength)//.aggregate_array('daysSinceLastPrecip'))
+
+// REFORMAT DATES FOR ALL POINTS IN THE SHAPEFILE
+var final = final.map(function (feature) {
+  var DATE = ee.Date(feature.get('system:time_start'))
+  return feature.set('PERMIT_DATE', DATE)
+})
+
+print(final.limit(10))
+
+// Wrap the Feature in a FeatureCollection for export.
+var featureCollection = final.map(function(feat){
+  var nullfeat = ee.Feature(null)
+  return nullfeat.copyProperties(feat)
+})
+
+print(featureCollection.limit(10))
+
+// EXPORT FINAL TABLE TO GOOGLE DRIVE FOR FURTHER ANALYSIS
+Export.table.toDrive({
+collection: featureCollection,
+  description: 'GA_BurnPermits_w_NoRainDays',
+  folder: 'GEE_Downloads',
+fileFormat: 'CSV'
+});
