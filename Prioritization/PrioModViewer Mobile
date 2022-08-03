@@ -1,0 +1,329 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var LLL = ee.FeatureCollection("users/esimonson/AOIs/Longleaf_Legacy"),
+    geometry = /* color: #d63000 */ee.Geometry.Point([-84.02601956107209, 31.87415733817505]),
+    PrioViz = {"opacity":1,"bands":["b1"],"min":1,"max":9,"palette":["020aff","00a1ff","00f3ff","33ff00","a9ff00","fff700","ffa500","ff5e00","ff0000"]},
+    upland_model = ee.Image("users/esimonson/Prioritization/upland_model"),
+    wetland_model = ee.Image("users/esimonson/Prioritization/wetland_model"),
+    fc = ee.FeatureCollection("users/esimonson/Prioritization/Plantations_For_Viewer");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+var waterMap = ui.Map();
+
+// REFERENCE
+// Center the map to an area of interest (ex. Tall Timbers)
+waterMap.setCenter(-84.20875, 30.6565, 12)
+
+// Call in NAIP imagery for reference
+var NAIP = ee.ImageCollection('USDA/NAIP/DOQQ')
+  .filterBounds(LLL)
+  .filterDate('2017-01-01','2017-11-30')
+  .mosaic();
+var visParams = {bands:['R', 'G', 'B']}
+Map.addLayer(NAIP, visParams, 'High Resolution Reference Imagery');
+
+// Create an array for the 'name' attribute of the plantations feature collection
+var names = fc.aggregate_array('NAME');
+
+var classNames = ['1','2','3','4','5', '6', '7', '8', '9'];
+var palette = ['020aff', '00a1ff', '00f3ff', '33ff00', 'a9ff00', 'fff700', 'ffa500', 'ff5e00', 'ff0000'];
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ 
+// Create Plantation selection widget that searches fusion table by array of names
+// This function will subsequently render two historams (upland and weland models)
+// var select = ui.Select({
+//   items: names.getInfo(),
+//   placeholder: ('Choose Area of Interest'),
+//   style: {width: '290px'},
+//   onChange: function(key) {
+//     Map.layers().reset(); //clears previous calculations from map upon new selection
+//     Map.addLayer(NAIP, visParams, 'High Resolution Reference Imagery')
+//     var selection = ee.Feature(fc.filter(ee.Filter.eq('NAME', key)).first());
+//     Map.centerObject(selection); //centers map on Plantation selection
+//     // show Plantation
+//     var shown = true; // true or false, 1 or 0
+//     var opacity = 0.2; // number [0-1]
+//     //var layer = ui.Map.Layer(selection, {color:'blue'}, 'Plantation', shown, opacity);
+//     //Map.layers().set(1, layer)//adds Plantation selection to the map
+//     Map.addLayer(upland_model.clip(selection), PrioViz, 'Upland Priorotization Model')
+//     Map.addLayer(wetland_model.clip(selection), PrioViz, 'Wetland Prioritization Model')
+//     Map.addLayer(selection, {color:'ffffff'}, 'Plantation', shown, opacity)
+    
+//   }
+// });
+
+// var controlPanel = ui.Panel(
+//   {
+//   widgets: [
+//     ui.Chart([['<img src=https://www.findalandtrust.org/land_trusts/7581/logo width=350px>']],'Table', {allowHtml: true}),
+//     ui.Label('View Wetland and Upland Models for an Area of Interest', 
+//       {fontWeight: 'bold', fontSize: '14px', margin: '10px 5px'}),
+//     ui.Label('1) Select Area of Interest', {fontWeight: 'bold'}), //title for Step 1
+//     ui.Label('If your area of interest is not listed, contact support to get your area added',
+//       {fontSize: '12px'}),
+//       select, // adds drop down widget
+//     ui.Label('2. Wait for the layers to render.', {fontWeight: 'bold'}),
+//     ui.Label('3. Repeat steps 1-2 to obtain results for a new area.', {fontWeight: 'bold'}),
+//       //{whiteSpace: 'pre'})
+//   ],
+//   style: {position: 'bottom-left'},
+//   layout: null,
+// });
+  
+// Map.add(controlPanel);
+
+// // ADD A LEGEND
+
+// // SET POSITION OF PANEL
+// var legend = ui.Panel({
+//   style: {
+//     position: 'bottom-right',
+//     padding: '8px 15px'
+//   }});
+ 
+// // CREATE LEGEND TITLE
+// var legendTitle = ui.Label({
+//   value: 'Prioritization Scores',
+//   style: {fontWeight: 'bold',
+//     fontSize: '18px',
+//     margin: '0 0 4px 0',
+//     padding: '0'
+//     }});
+ 
+// // ADD THE TITLE TO THE PANEL
+// legend.add(legendTitle);
+ 
+// // CREATES AND STYLES 1 ROW OF THE LEGEND
+// var makeRow = function(color, name) {
+ 
+//       // CREATE THE LABEL THAT IS ACTUALLY THE COLORED BOX
+//       var colorBox = ui.Label({
+//         style: {
+//           backgroundColor: '#' + color,
+//           // USE PADDING TO GIVE THE BOX HEIGHT AND WIDTH
+//           padding: '8px',
+//           margin: '0 0 4px 0'
+//         }});
+ 
+//       // CREATE THE LABEL FILLED WITH THE DESCRIPTION TEXT
+//       var description = ui.Label({
+//         value: name,
+//         style: {margin: '0 0 4px 6px'}
+//       });
+ 
+//       // RETURN THE PANEL
+//       return ui.Panel({
+//         widgets: [colorBox, description],
+//         layout: ui.Panel.Layout.Flow('horizontal')
+//       })};
+ 
+// //  PALETTE WITH THE COLORS
+// var palette =['020aff', '00a1ff', '00f3ff', '33ff00', 'a9ff00', 'fff700', 'ffa500', 'ff5e00', 'ff0000'];
+ 
+// // NAMES ON THE LEGEND
+// var names = ['1','2','3','4','5', '6', '7', '8', '9'];
+ 
+// // ADD COLOR AND NAMES
+// for (var i = 0; i < 9; i++) {
+//   legend.add(makeRow(palette[i], names[i]));
+//   }  
+ 
+// // ADD LEGEND TO MAP (ALTERNATIVELY YOU CAN ALSO PRINT THE LEGEND TO THE CONSOLE)
+// Map.add(legend);
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Create the main panel with different sections.
+var uiComponents = {};
+uiComponents.initialize = function(mobileStyle) {
+  // The introduction section.
+  uiComponents.intro = {
+    panel: ui.Panel({
+      widgets: [
+          //ui.Chart([['<img src=https://www.findalandtrust.org/land_trusts/7581/logo width=350px>']],'Table', {allowHtml: true}),
+          ui.Label({
+              value: 'View Wetland and Upland Models for an Area of Interest', 
+              style: {
+                fontWeight: 'bold', 
+                fontSize: mobileStyle ? '14px' : '10px', 
+                margin: '10px 5px',
+              }
+              }),
+          ui.Label({
+              value: '1) Select Area of Interest', 
+              style: {
+                fontWeight: 'bold', //title for Step 1
+                fontSize: mobileStyle ? '14px' : '10px', 
+                margin: '10px 5px',
+              }
+              }),
+          ui.Label({
+              value: 'If your area of interest is not listed, contact support to get your area added',
+              style: {
+                fontSize: mobileStyle ? '14px' : '10px', 
+                margin: '10px 5px',
+              }
+              }),
+          ui.Select({
+              items: names.getInfo(),
+              placeholder: ('Choose Area of Interest'),
+              style: {width: '290px'},
+              onChange: function(key) {
+                waterMap.layers().reset(); //clears previous calculations from map upon new selection
+                waterMap.addLayer(NAIP, visParams, 'High Resolution Reference Imagery')
+                var selection = ee.Feature(fc.filter(ee.Filter.eq('NAME', key)).first());
+                waterMap.centerObject(selection); //centers map on Plantation selection
+                // show Plantation
+                var shown = true; // true or false, 1 or 0
+                var opacity = 0.2; // number [0-1]
+               //var layer = ui.Map.Layer(selection, {color:'blue'}, 'Plantation', shown, opacity);
+                //Map.layers().set(1, layer)//adds Plantation selection to the map
+                waterMap.addLayer(upland_model.clip(selection), PrioViz, 'Upland Priorotization Model')
+                waterMap.addLayer(wetland_model.clip(selection), PrioViz, 'Wetland Prioritization Model')
+                waterMap.addLayer(selection, {color:'ffffff'}, 'Plantation', shown, opacity)
+    
+  }
+}),
+
+          ui.Label({
+              value: '2. Wait for the layers to render.', 
+              style: {
+                fontWeight: 'bold',
+                fontSize: mobileStyle ? '14px' : '10px', 
+                margin: '10px 5px',
+              }
+              }),
+          ui.Label({
+              value: '3. Repeat steps 1-2 to obtain results for a new area.', 
+              style: {
+                fontWeight: 'bold', 
+                fontSize: mobileStyle ? '14px' : '10px', 
+                margin: '10px 5px',
+              }
+              }),
+          ui.Button({
+              label: 'Close',
+              style: {
+                position: 'bottom-right', shown: mobileStyle ? true : false
+                
+              },
+          // React to the button's click event.
+              onClick: function() {
+              ui.root.widgets().add(uiComponents.legend);
+              waterMap.remove(uiComponents.intro.panel);
+          }
+        })
+      ],
+   style: {position: 'bottom-left'},
+   layout: null,
+    }),
+
+    // A Learn More button for mobile screens.
+    learnMoreButton: ui.Button({
+      label: 'Learn More',
+      style: {
+        position: 'top-left',
+        padding: '0',
+      },
+      // React to the button's click event.
+      onClick: function() {
+        ui.root.widgets().remove(uiComponents.legend);
+        waterMap.add(uiComponents.intro.panel);
+      }
+    }),
+  };
+
+  // Legend title.
+  uiComponents.legendTitle = ui.Label({
+    value: 'Prioritization Scores',
+    style: {
+      fontWeight: 'bold',
+      fontSize: mobileStyle ? '18px' : '16px',
+      margin: '50px 0 6px 0',
+      padding: '0'
+    }
+  });
+
+  // Legend panel
+  uiComponents.legend = ui.Panel({
+    style: mobileStyle ? {position: 'bottom-left', padding: '10px'} : {
+      fontWeight: 'bold',
+      fontSize: '10px',
+      margin: '0 0 10px 12px',
+      padding: '0'
+    }
+  });
+
+  if (!mobileStyle) {
+    uiComponents.legend.add(uiComponents.legendTitle);
+  }
+
+  // Creates and styles 1 row of the legend.
+  var makeLegendRow = function(name, color, mobileStyle) {
+    // Create the label that is actually the colored box.
+    var colorBox = ui.Label({
+      style: {
+        backgroundColor: '#' + color,
+        // Use padding to give the box height and width.
+        padding: mobileStyle ? '10px' : '8px',
+        margin: '0 0 4px 0',
+        border: 'solid 0.5px',
+      }
+    });
+
+    // Create the label filled with the description text.
+    var description = ui.Label({
+      value: name,
+      style: {margin: '0 0 4px 6px', fontSize: mobileStyle ? '16px' : '12px'},
+    });
+
+    return ui.Panel({
+      widgets: [colorBox, description],
+      layout: ui.Panel.Layout.Flow('horizontal')
+    });
+  };
+
+  for (var i = 0; i < classNames.length; i++) {
+    uiComponents.legend.add(makeLegendRow(classNames[i], palette[i], mobileStyle));
+  }
+};
+
+// The function that configures different devices according to screen sizes.
+function configLayout(deviceInfo) {
+  ui.root.clear();
+  if (!deviceInfo.is_desktop || deviceInfo.width < 1500) {
+    // Configuration for mobile screen.
+    uiComponents.initialize(true);
+    waterMap.setControlVisibility(true);
+    waterMap.setCenter(-84.20875, 30.6565, 12);
+
+    // Add "learn more" button if it hasn't been added to the map.
+    if (waterMap.widgets().length() < 1) {
+      waterMap.add(uiComponents.intro.learnMoreButton);
+    }
+    ui.root.widgets().reset([waterMap, uiComponents.legend]);
+    ui.root.setLayout(ui.Panel.Layout.absolute());
+  } else {
+    // Web page configuration.
+    uiComponents.initialize(false);
+    waterMap.setControlVisibility(true);
+    waterMap.setCenter(-84.20875, 30.6565, 12);
+
+    // Remove button if it has been added to the map.
+    if (waterMap.widgets().length() > 0) {
+      waterMap.widgets().reset();
+    }
+
+    var mainPanel = ui.Panel({
+      widgets: [
+        uiComponents.intro.panel,
+        uiComponents.legend,
+      ],
+      style: {width: '320px', padding: '8px'}
+    });
+    ui.root.widgets().reset([mainPanel, waterMap]);
+    ui.root.setLayout(ui.Panel.Layout.flow('horizontal'));
+  }
+}
+
+ui.root.onResize(configLayout);

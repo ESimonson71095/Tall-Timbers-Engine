@@ -1,0 +1,1162 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var LLL = ee.FeatureCollection("users/esimonson/AOIs/Longleaf_Legacy"),
+    LLL_Counties = ee.FeatureCollection("users/esimonson/Prioritization/LLL_Counties"),
+    LLL_HUC12 = ee.FeatureCollection("users/esimonson/Prioritization/LLL_HUC12"),
+    LLL_Parcels = ee.FeatureCollection("users/esimonson/Prioritization/LLL_Parcels_50ac_wo_PA"),
+    LLL_Parcels_Master = ee.FeatureCollection("users/esimonson/Prioritization/LLL_ParcelBounds_Master"),
+    FF_BOT_Projects = ee.FeatureCollection("users/esimonson/Prioritization/LLL_BOT_Projects"),
+    Plantations = ee.FeatureCollection("users/esimonson/Prioritization/Plantations_For_Viewer"),
+    NonTT_Easements = ee.FeatureCollection("users/esimonson/Prioritization/Non_Tall_Timbers_Easements_LLL"),
+    Wetland_Species = ee.Image("users/esimonson/Prioritization/Wetland_Species_SEGAP"),
+    Species = ee.Image("users/esimonson/Prioritization/Upland_Species"),
+    Upland = ee.Image("users/esimonson/Prioritization/upland_model"),
+    Wetland = ee.Image("users/esimonson/Prioritization/wetland_model"),
+    DTCL = ee.Image("users/esimonson/Prioritization/DistToCL"),
+    TSPF = ee.Image("users/esimonson/Prioritization/TSPF_94to19"),
+    EVT = ee.Image("users/esimonson/Prioritization/ExistingVegType"),
+    TNC_Climate_Resilience = ee.Image("users/esimonson/Prioritization/TNC_Climate_Resilience"),
+    NLCD = ee.ImageCollection("USGS/NLCD_RELEASES/2016_REL"),
+    NoData = ee.Image("users/esimonson/SE_FHM/FireLayer_1994_90BP_SE"),
+    Easements = ee.FeatureCollection("users/esimonson/TallTimbers/TallTimbers_Easements"),
+    PublicLands = ee.FeatureCollection("users/esimonson/Prioritization/LLL_ProtecredAreas_Final");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// DATA PRE-PROCESSING
+
+// SET REFERENCE LOCATION(S) 
+var locationDict = {
+  'LLL': {lon: -85.3905, lat: 31.2232, zoom: 8},
+  //'Tornado in Alabama': {lon: -87.332, lat: 33.313, zoom: 11}
+};
+
+var Easements = Easements.filterBounds(LLL)
+
+var mask = TNC_Climate_Resilience.neq(128)
+var TNC_Climate_Resilience = TNC_Climate_Resilience.updateMask(mask)
+
+// CREATE BLANK (NO DATA) IMAGE FOR UI
+var NoDataMask = NoData.gt(1)
+var NoData = NoData.updateMask(NoDataMask)
+
+// EXTRACT STATE NAMES TO A VARIABLE
+var EasementNames = Easements.aggregate_array('property_n').sort()
+
+// IMPORT NAIP IMAGERY
+var NAIP = ee.ImageCollection('USDA/NAIP/DOQQ').filterBounds(LLL)
+
+// RECLASSIFY UPLAND AND WETLAND MODEL FOR HISTOGRAMS
+var upland_reclass = ee.Image(1)
+          .where(Upland.gt(0).and(Upland.lte(3)), 1)
+          .where(Upland.gt(3).and(Upland.lte(6)), 2)
+          .where(Upland.gt(6).and(Upland.lte(9)), 3)
+
+var wetland_reclass = ee.Image(1)
+          .where(Wetland.gt(0).and(Upland.lte(3)), 1)
+          .where(Wetland.gt(3).and(Upland.lte(6)), 2)
+          .where(Wetland.gt(6).and(Upland.lte(9)), 3)
+          
+var labelByValue = ee.Dictionary({
+  1: '(1-3) Low',
+  2: '(4-6) Moderate',
+  3: '(7-9) High',
+})          
+
+// CREATE ANNUAL NAIP LAYERS
+var NAIP_2019 = NAIP.filterDate('2019-01-01', '2019-12-31').mosaic()
+var NAIP_2017 = NAIP.filterDate('2017-01-01', '2017-12-31').mosaic()
+var NAIP_2015 = NAIP.filterDate('2015-01-01', '2015-12-31').mosaic()
+var NAIP_2013 = NAIP.filterDate('2013-01-01', '2013-12-31').mosaic()
+var NAIP_2010 = NAIP.filterDate('2010-01-01', '2010-12-31').mosaic()
+var NAIP_2007 = NAIP.filterDate('2007-01-01', '2007-12-31').mosaic()
+var NAIP_2006 = NAIP.filterDate('2006-01-01', '2006-12-31').mosaic()
+var NAIP_2005 = NAIP.filterDate('2005-01-01', '2005-12-31').mosaic()
+
+// CREATE AN IMAGE COLLECTION WITH THE NAIP (AND NO DATA) LAYERS
+var images = {
+  'Select Year': NoData,
+  '2005': NAIP_2005,
+  '2006': NAIP_2006,
+  '2007': NAIP_2007,
+  '2010': NAIP_2010,
+  '2013': NAIP_2013,
+  '2015': NAIP_2015,
+  '2017': NAIP_2017,
+  '2019': NAIP_2019,
+};
+
+// IMPORT NLCD DATA
+NLCD = NLCD.filterDate('2016-01-01','2016-12-31').mosaic().clip(LLL)
+
+// Create an empty image into which to paint the features, cast to byte.
+var empty = ee.Image().byte();
+
+// Paint all the polygon edges with the same number and width, display.
+var Easements_outline = empty.paint({
+  featureCollection: Easements,
+  color: 1,
+  width: 2
+});
+
+var Counties_outline = empty.paint({
+  featureCollection: LLL_Counties,
+  color: 1,
+  width: 3
+});
+
+var BOT_outline = empty.paint({
+  featureCollection: FF_BOT_Projects,
+  color: 1,
+  width: 2
+});
+
+var Parcels_outline = empty.paint({
+  featureCollection: LLL_Parcels,
+  color: 1,
+  width: 1
+});
+
+var PublicLands_outline = empty.paint({
+  featureCollection: PublicLands,
+  color: 1,
+  width: 2
+});
+
+var NonTT_Easements_outline = empty.paint({
+  featureCollection: NonTT_Easements,
+  color: 1,
+  width: 2
+});
+
+
+// DEFINE SOME CONSTANTS
+var UPLAND = 'Upland Model';
+var WETLAND = 'Wetland Model';
+var UPLAND_SP = 'Upland Species Habitat';
+var WETLAND_SP = 'Wetland Species Habitat'
+var VEGCOVER = 'Existing Vegtation Type';
+var BUFFER = 'Distance To Protected Area';
+var FIRETIME = 'Time Since Previous Fire'
+var RESILIENCE = 'TNC Climate Resilience'
+
+// RENAME BANDS FOR EACH OF THE PRIORITIZATION LAYERS
+var Species = Species.select(['b1'],['Habitat'])
+var Wetland_Species = Wetland_Species.select(['b1'],['WetlandHabitat'])
+var Upland = Upland.select(['b1'],['Upland'])
+var Wetland = Wetland.select(['b1'],['Wetland'])
+var EVT = EVT.select(['b1'],['EVT'])
+var DTCL = DTCL.select(['b1'],['DTCL'])
+var TSPF = TSPF.select(['b1'],['TSPF'])
+var TNC_Climate_Resilience = TNC_Climate_Resilience.select(['b1'],['TNC']).clip(LLL)
+
+// MERGE THE IMAGES INTO AN IMAGE COLLECTION
+var merged = ee.ImageCollection([Upland, Wetland, Species, Wetland_Species, TNC_Climate_Resilience, EVT, DTCL, TSPF])
+
+// CONVERT IMAGE COLLECTION TO IMAGE
+var PrioLayer = merged.toBands();
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// CONFIGURE LAYER PROPERTIES
+var layerProperties = {
+  'Upland Model': {
+    name: '0_Upland',
+    visParams: {min: 1, max: 9, palette: ['020aff','00a1ff','00f3ff','33ff00','fff700','ffa500','ff5e00','ff0000','610000']},
+    legend:
+        [{'1': '020aff'},{'2': '00a1ff'},{'3': '00f3ff'},{'4': '33ff00'},{'5': 'fff700'},
+        {'6': 'ffa500'},{'7': 'ff5e00'},{'8': 'ff0000'},{'9': '610000'}],
+    defaultVisibility: true
+  },
+  'Wetland Model': {
+    name: '1_Wetland',
+    visParams: {min: 1, max: 9, palette: ['020aff','00a1ff','00f3ff','33ff00','fff700','ffa500','ff5e00','ff0000','610000']},
+    legend:
+        [{'1': '020aff'},{'2': '00a1ff'},{'3': '00f3ff'},{'4': '33ff00'},{'5': 'fff700'},
+        {'6': 'ffa500'},{'7': 'ff5e00'},{'8': 'ff0000'},{'9': '610000'}],
+    defaultVisibility: false
+  },
+  'Upland Species Habitat': {
+    name: '2_Habitat',
+    visParams: {min: 0, max: 5, palette: ['001fff', '04ffff', '10ff00', 'fff700', 'ffa500', 'ff0000']},
+    legend: [
+      {'0': '001fff'}, {'1': '04ffff'}, {'2': '10ff00'},
+      {'3': 'fff700'}, {'4': 'ffa500'}, {'5': 'ff0000'}
+    ],
+    defaultVisibility: false
+  },
+  'Wetland Species Habitat': {
+    name: '3_WetlandHabitat',
+    visParams: {min: 0, max: 8, palette: ['5813FC', '6B79FE', '4FC8FE', '58FCE8', 'B4FEA4', 'E5FD54','FCD419','FF8F0B','FF2B18']},
+    legend: [
+      {'0': '5813FC'}, {'1': '6B79FE'}, {'2': '4FC8FE'},{'3': '58FCE8'}, {'4': 'B4FEA4'}, 
+      {'5': 'E5FD54'}, {'6': 'FCD419'}, {'7': 'FF8F0B'}, {'8': 'FF2B18'}
+    ],
+    defaultVisibility: false
+  },
+  'TNC Climate Resilience': {
+    name: '4_TNC',
+    visParams: {min: 1, max: 8, palette: ['8B8B8B','9B571B','BD874C','E8C383','FEFFBD','ADC274','5B8A3A','275903']},
+    legend:
+        [{'Far Above Average': '275903'},{'Above Average': '5B8A3A'},{'Slightly Above Average': 'ADC274'},{'Average': 'FEFFBD'},
+        {'Slightly Below Average': 'E8C383'},{'Below Average': 'BD874C'},{'Far Below Average': '9B571B'},{'Developed': '8B8B8B'},],
+    defaultVisibility: false
+  },
+
+  'Existing Vegetation Type': {
+    name: '5_EVT',
+    visParams: {min: 0, max: 12, palette: ['7a3e3e','9d9d9d','001fff','00c4ff','faa9ff','f3c33c','2e7e1f','0a187c','ff5a5a','ffe2e2','2bff1d','e1ff68','89c08e']},
+    legend: [
+      {'No Data': '7a3e3e'}, {'Urban': '9d9d9d'}, {'Open Water': '001fff'}, {'Wetland': '00c4ff'}, {'Coastal Wetland': 'faa9ff'}, {'Forested Wetland': 'f3c33c'}, 
+      {'Mixed Pine Haedwood': '2e7e1f'}, {'Planted Pine': '0a187c'}, {'Pine Flatwoods': 'ff5a5a'}, {'Uplaned/Planted Pine': 'ffe2e2'}, {'Upland Hardwood': '2bff1d'}, 
+      {'Upland Pine': 'e1ff68'},{'Fields/Patsture/Ag/Groves': '89c08e'},],
+    defaultVisibility: false
+  },
+  'Distance To Conservation Lands': {
+    name: '6_DTCL',
+    visParams: {min: 0, max: 6, palette: ['33af00', 'bfe647', 'ffe4b3', 'ffc38f', 'eb9f51', 'ffafaf','ffdede']},
+    legend: [
+      {'Within 0.25 Miles': '33af00'}, {'Within 0.50 Miles': 'bfe647'}, {'Withim 1 Mile': 'ffe4b3'},
+      {'Within 2 Miles': 'ffc38f'}, {'Within 3 Miles': 'eb9f51'}, {'Within 4 Miles': 'ffafaf'}, {'Within 5 Miles' : 'ffdede'}],
+    defaultVisibility: false
+  },
+  'Time Since Previous Fire': {
+    name: '7_TSPF',
+    visParams: {min: 1, max: 26, palette: ['ff0000','fff706','0043ff']},
+    legend:
+        [{'1 Year': 'ff0000'},{'...': 'fff706'},{'26 Years': '0043ff'}],
+    defaultVisibility: false
+  }
+};
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MAP PANEL CONFIGURATION
+
+// CREATE A MAP PANEL
+var mapPanel = ui.Map();
+
+// ADD THE MAP PANEL TO THE INTERFACE
+ui.root.widgets().reset([mapPanel]);
+ui.root.setLayout(ui.Panel.Layout.flow('horizontal'));
+
+// SET THE INITIAL BACKGROUND MAP
+mapPanel.setOptions('HYBRID');
+
+// SET THE CURSOR TYPE
+mapPanel.style().set('cursor', 'crosshair');
+
+// SET TRUE/FALSE FOR DEFAULT UI FUNCTIONALITY
+mapPanel.setControlVisibility({all: false, zoomControl: true, mapTypeControl: true});
+
+// CENTER THE MAP
+var defaultLocation = locationDict['LLL'];
+mapPanel.setCenter(defaultLocation.lon, defaultLocation.lat, defaultLocation.zoom);
+
+// ADD A HIDDEN IMAGE TO THE MAP TO HOLD A PLACE FOR NAIP IMAGERY
+mapPanel.addLayer(NAIP_2019, {}, 'NAIP Reference Image', false)
+
+// ADD FIRE HISTORY LAYERS TO MAP
+var opacityChangingLayers = []
+for (var key in layerProperties) {
+  var layer = layerProperties[key];
+  var image = PrioLayer.select(layer.name).visualize(layer.visParams);
+  var mapLayer = ui.Map.Layer(image, {}, key, layer.defaultVisibility);
+  mapPanel.add(mapLayer)
+  opacityChangingLayers.push(mapLayer);
+}
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// FUNCTION TO ADD NAIP IMAGE SELECTION WIDGET TO MAP
+function addLayerSelector(mapToChange, defaultValue, position) {
+  var label = ui.Label('View NAIP Imagery');
+  // UPDATE MAP WITH SELECTED NAIP IMAGE
+  function updateMap(selection) {
+    mapToChange.layers().set(0, ui.Map.Layer(images[selection], {}, 'NAIP Reference Image'));
+  }
+  // DEFINE SELECTION DROP-DOWN THAT RESPONDS TO SELECTED YEAR
+  var select = ui.Select({items: Object.keys(images), onChange: updateMap});
+  select.setValue(Object.keys(images)[defaultValue], false);
+  // DEFINE THE LAYER SELECTION PANEL
+  var controlPanel =
+      ui.Panel({widgets: [label, select], style: {position: position}});
+  // ADD THE LAYER SELECTION PANEL TO THE MAP
+  mapToChange.add(controlPanel);
+}
+
+// APPLY THE FUNCTION, ADD THE NAIP SELECTOR TO THE MAP
+var NAIPSelector = addLayerSelector(mapPanel, 8, 'top-left');
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TOOL PANEL CONFIGURATION
+
+// CREATE THE TOOL PANEL
+var toolPanel = ui.Panel({
+  //widgets : ([header,text]),
+  layout: ui.Panel.Layout.flow('vertical'),
+  style: {width: '320px', position: 'bottom-left'}
+});
+// Default
+ui.root.widgets().add(toolPanel);
+
+// CREATE INDIVIDUAL PANELS FOR TOOL PANEL
+var openingPanel = ui.Panel();
+var layerPanel = ui.Panel();
+var renderPanel = ui.Panel();
+var importPanel = ui.Panel();
+var visitlandsPanel = ui.Panel();
+var pixinspectorPanel = ui.Panel();
+var referencelinksPanel = ui.Panel();
+var closingPanel = ui.Panel();
+
+// ADD INDIVIDUAL PANELS TO TOOL PANEL
+toolPanel.add(openingPanel)
+toolPanel.add(layerPanel)
+toolPanel.add(renderPanel)
+toolPanel.add(importPanel)
+toolPanel.add(visitlandsPanel)
+toolPanel.add(pixinspectorPanel)
+toolPanel.add(referencelinksPanel)
+toolPanel.add(closingPanel)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// TOP PANEL SECTION
+
+// DEFINE HEADER AND TEXT LABELS FOR THE PANEL
+var header = ui.Label('Prioritization Layer Viewer', {fontSize: '22px', color: 'green'});
+var text = ui.Label('A user friendly way to visualize prioritization models and their ecological indiactors within the Longleaf Legacy Landscape.',{fontSize: '11px'});
+
+// TTLC LOGO
+var logo = ee.Image("users/esimonson/Logos/TTRS_TTLC_Logo");
+var branding = ui.Thumbnail({image:logo,params:{bands:['b1','b2','b3'],min:0,max:255},style:{width:'260px',height:'100px'}});
+
+// ADD ALL LABELS AND WIDGETS TO OPENING PANEL
+openingPanel.add(header)
+openingPanel.add(branding)
+openingPanel.add(text)
+
+openingPanel.add(ui.Label({
+value: '____________________________________________',
+style: {fontWeight: 'bold', color: 'green'},
+}))
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// SELECT LAYER SECTION
+layerPanel.add(ui.Label('View Different Layers', {'font-size': '24px'}));
+
+// DEFINE VARIABLES THAT WILL BE USED IN THE LAYER SELECTION 
+var selectItems = Object.keys(layerProperties);
+var layerSelect
+
+// DEFINE THE PULL DOWN MENU - CHANGING THE LAYER WILL ALSO CHANGE THE LEGEND
+var layerSelect = ui.Select({
+  items: selectItems,
+  value: selectItems[0],
+  onChange: function(selected) {
+    opacityChangingLayers.forEach(function(element, index) {
+      element.setShown(selected == element.getName());
+    });
+    setLegend(layerProperties[selected].legend);
+  }
+});
+
+// ADD THE LAYER SELECTION WIDGET TO ITS RESPECTIVE PANEL
+layerPanel.add(layerSelect);
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// CREATE A PANEL FOR THE LEGEND TITLE
+var legendPanel = ui.Panel({style:{fontWeight: 'bold', fontSize: '10px', margin: '0 0 0 8px', padding: '0'}});
+var legendTitle = ui.Label('Legend',{fontWeight: 'bold', fontSize: '10px', margin: '0 0 4px 8px', padding: '5'});
+layerPanel.add(legendTitle);
+layerPanel.add(legendPanel);
+
+// CREATE A PANEL FOR THE LEGEND ITSELF
+var keyPanel = ui.Panel({style:{margin: '0 0 0 8px', padding: '0'}});
+layerPanel.add(keyPanel);
+
+// FUNCTION TO INTERACTIVELY SET LEGEND
+function setLegend(legend) {
+  // LOOP THROUGH ALL THE ITEMS IN A LAYER'S KEY PROPERTY, CREATES THE ITEM, AND ADDS IT TO THE KEY PANEL
+  keyPanel.clear();
+  for (var i = 0; i < legend.length; i++) {
+    var item = legend[i];
+    var name = Object.keys(item)[0];
+    var color = item[name];
+    var colorBox = ui.Label('', {
+      backgroundColor: color,
+      // USE PADDING TO GIVE THE BOX HEIGHT AND WIDTH
+      padding: '8px',
+      margin: '0'
+    });
+    // CREATE THE LABEL WITH THE DESCRIPTION TEXT
+    var description = ui.Label(name, {margin: '0 0 4px 6px'});
+    keyPanel.add(
+        ui.Panel([colorBox, description], ui.Panel.Layout.Flow('horizontal')));
+  }
+}
+
+// SET THE INITIAL LEGEND
+setLegend(layerProperties[layerSelect.getValue()].legend);
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// CREATE VISIBILITY CHECKBOX AND OPACITY SLIDER
+// IF THE CHECKBOX IS CLICKED OFF, LAYER SELECTION AND VISUALIZATION ARE DISABLED
+var checkbox = ui.Checkbox({
+  label: 'Opacity',
+  value: true,
+  onChange: function(value) {
+    var selected = layerSelect.getValue();
+    // SET RASTER LAYERS TO HIDDEN
+  opacityChangingLayers.forEach(function(element, index) {
+      element.setShown(selected == element.getName() ? value : false);
+    });
+  // DISABLE SET LAYER
+    layerSelect.setDisabled(!value);
+  }
+});
+
+// CREATE AN OPACITY SLIDER
+var opacitySlider = ui.Slider({
+  min: 0,
+  max: 1,
+  value: 1,
+  step: 0.01,
+});
+
+// FUNCTION THAT SETS LAYER OPACITY BASED ON USER INPUT FROM SLIDER
+opacitySlider.onSlide(function(value) {
+  opacityChangingLayers.forEach(function(element, index) {
+    element.setOpacity(value);
+  });
+});
+
+// ADD THE CHECKBOX AND OPACITY SLIDER TO THE TOOL PANEL
+var viewPanel = ui.Panel([checkbox, opacitySlider], ui.Panel.Layout.Flow('horizontal'));
+layerPanel.add(viewPanel);
+layerPanel.add(ui.Label({
+value: '____________________________________________',
+style: {fontWeight: 'bold', color: 'green'},
+}))
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// RENDER BOUNDARIES SECTION
+renderPanel.add(ui.Label('Render Boundaries', {'font-size': '24px'}));
+
+// SET CONSTANTS
+// var Easement_lyr, Land_Bounds
+// var Easement_lyr, NonTT_Easement_lyr, Land_Bounds, Counties_lyr, Parcels_lyr, PublicLands_lyr, BOT_lyr
+var Easement_lyr = ui.Map.Layer(Easements_outline, {palette: '301934'}, 'Tall Timbers Easements');
+var NonTT_Easements_lyr = ui.Map.Layer(NonTT_Easements_outline, {palette: '8B0000'}, 'NonTT Easements');
+var Parcels_lyr = ui.Map.Layer(Parcels_outline, {palette: '000000'}, 'Parcel Boundaries');
+var PublicLands_lyr = ui.Map.Layer(PublicLands_outline, {palette: '006400'}, 'Public Lands Boundaries');
+var BOT_lyr = ui.Map.Layer(BOT_outline, {palette: '00008B'}, 'BOT Boundaries');
+var Counties_lyr = ui.Map.Layer(Counties_outline, {palette: '000000'}, 'County Boundaries');
+var Land_Bounds
+
+
+
+
+// // BUILD RENDER BUTTONS
+// var renderButton1 = ui.Button({
+//   label: 'Tall Timbers Easements',
+// //  value: false,
+//   onClick: function(value) {
+//     var Easement_lyr = ui.Map.Layer(Easements_outline, {palette: '301934'}, 'Tall Timbers Easements');
+//     mapPanel.layers().set(10, Easement_lyr)
+//   }
+// });
+// var clearButton1 = ui.Button({
+//   label: 'Clear',
+// //  value: false,
+//   onClick: function(value) {
+//     mapPanel.layers().set(10, Easement_lyr, {}, false);
+//   }
+// });
+// var buttonPanel1 = ui.Panel([renderButton1, clearButton1], ui.Panel.Layout.Flow('horizontal'));
+
+// // BUILD RENDER BUTTONS
+// var renderButton2 = ui.Button({
+//   label: 'Non Tall Timbers Easements',
+// //  value: false,
+//   onClick: function(value) {
+//     var NonTT_Easement_lyr = ui.Map.Layer(NonTT_Easements_outline, {palette: '8B0000'}, 'Non Tall Timbers Easements');
+//     mapPanel.layers().set(11, NonTT_Easement_lyr)
+//   }
+// });
+// var clearButton2 = ui.Button({
+//   label: 'Clear',
+// //  value: false,
+//   onClick: function(value) {
+//     mapPanel.layers().set(11, NonTT_Easement_lyr, {}, false);
+//   }
+// });
+// var buttonPanel2 = ui.Panel([renderButton2, clearButton2], ui.Panel.Layout.Flow('horizontal'));
+
+// var renderButton3 = ui.Button({
+//   label: 'All Other Parcels (> 50 acres)',
+// //  value: false,
+//   onClick: function(value) {
+//     var Parcels_lyr = ui.Map.Layer(Parcels_outline, {palette: '000000'}, 'Parcel Boundaries');
+//     mapPanel.layers().set(9, Parcels_lyr)
+//   }
+// });
+// var clearButton3 = ui.Button({
+//   label: 'Clear',
+// //  value: false,
+//   onClick: function(value) {
+//     mapPanel.layers().set(9, Parcels_lyr, {}, false);
+//   }
+// });
+// var buttonPanel3 = ui.Panel([renderButton3, clearButton3], ui.Panel.Layout.Flow('horizontal'));
+
+// var renderButton4 = ui.Button({
+//   label: 'Other Protected Areas',
+// //  value: false,
+//   onClick: function(value) {
+//     var PublicLands_lyr = ui.Map.Layer(PublicLands_outline, {palette: '006400'}, 'Public Lands Boundaries');
+//     mapPanel.layers().set(12, PublicLands_lyr)
+//   }
+// });
+// var clearButton4 = ui.Button({
+//   label: 'Clear',
+// //  value: false,
+//   onClick: function(value) {
+//     mapPanel.layers().set(12, PublicLands_lyr, {}, false);
+//   }
+// });
+// var buttonPanel4 = ui.Panel([renderButton4, clearButton4], ui.Panel.Layout.Flow('horizontal'));
+
+// var renderButton5 = ui.Button({
+//   label: 'Counties',
+// //  value: false,
+//   onClick: function(value) {
+//     var Counties_lyr = ui.Map.Layer(Counties_outline, {palette: '000000'}, 'LLL Counties');
+//     mapPanel.layers().set(13, Counties_lyr)
+//   }
+// });
+// var clearButton5 = ui.Button({
+//   label: 'Clear',
+// //  value: false,
+//   onClick: function(value) {
+//     mapPanel.layers().set(13, Counties_lyr, {}, false);
+//   }
+// });
+// var buttonPanel5 = ui.Panel([renderButton5, clearButton5], ui.Panel.Layout.Flow('horizontal'));
+
+// var renderButton6 = ui.Button({
+//   label: 'Florida Forever BOT Projects',
+// //  value: false,
+//   onClick: function(value) {
+//     var BOT_lyr = ui.Map.Layer(BOT_outline, {palette: '00008B'}, 'FF BOT Projects');
+//     mapPanel.layers().set(15, BOT_lyr)
+//   }
+// });
+// var clearButton6 = ui.Button({
+//   label: 'Clear',
+// //  value: false,
+//   onClick: function(value) {
+//     mapPanel.layers().set(15, BOT_lyr, {}, false);
+//   }
+// });
+// var buttonPanel6 = ui.Panel([renderButton6, clearButton6], ui.Panel.Layout.Flow('horizontal'));
+
+
+// var clearButton = ui.Button({
+//   label: 'Clear Boundaries',
+// //  value: false,
+//   onClick: function(value) {
+//     mapPanel.layers().set(9, Parcels_lyr, {}, false)
+//     mapPanel.layers().set(10, Easement_lyr, {}, false);
+//     mapPanel.layers().set(11, NonTT_Easement_lyr, {}, false);
+//     mapPanel.layers().set(12, PublicLands_lyr, {}, false);
+//     mapPanel.layers().set(13, Counties_lyr, {}, false)
+//     mapPanel.layers().set(14, Land_Bounds, {}, false);
+    
+//   }
+// });
+
+var Check = ui.Checkbox({
+  label: 'Tall Timbers Easements',
+  value: false,
+  onChange: function(checked) {
+    if (checked) {
+    Easement_lyr.setShown(true)
+    }
+    else {
+    Easement_lyr.setShown(false)
+    }
+  }
+})
+
+var Check2 = ui.Checkbox({
+  label: 'Non Tall Timbers Easemements',
+  value: false,
+  onChange: function(checked) {
+    if (checked) {
+    NonTT_Easements_lyr.setShown(true)
+    }
+    else {
+    NonTT_Easements_lyr.setShown(false)
+    }
+  }
+})
+
+var Check3 = ui.Checkbox({
+  label: 'Other Protected Areas',
+  value: false,
+  onChange: function(checked) {
+    if (checked) {
+    PublicLands_lyr.setShown(true)
+    }
+    else {
+    PublicLands_lyr.setShown(false)
+    }
+  }
+})
+
+var Check4 = ui.Checkbox({
+  label: 'Florida Forever BOT Projects',
+  value: false,
+  onChange: function(checked) {
+    if (checked) {
+    BOT_lyr.setShown(true)
+    }
+    else {
+    BOT_lyr.setShown(false)
+    }
+  }
+})
+
+var Check5 = ui.Checkbox({
+  label: 'All Other Parcels (> 50 acres)',
+  value: false,
+  onChange: function(checked) {
+    if (checked) {
+   Parcels_lyr.setShown(true)
+    }
+    else {
+   Parcels_lyr.setShown(false)
+    }
+  }
+})
+
+var Check6 = ui.Checkbox({
+  label: 'Counties',
+  value: false,
+  onChange: function(checked) {
+    if (checked) {
+    Counties_lyr.setShown(true)
+    }
+    else {
+    Counties_lyr.setShown(false)
+    }
+  }
+})
+
+// ADD RENDER BUTTONS TO PANEL
+// renderPanel.add(buttonPanel1)
+// renderPanel.add(buttonPanel2)
+// renderPanel.add(buttonPanel4)
+// renderPanel.add(buttonPanel6)
+// renderPanel.add(buttonPanel3)
+// renderPanel.add(buttonPanel5)
+renderPanel.add(Check)
+renderPanel.add(Check2)
+renderPanel.add(Check3)
+renderPanel.add(Check4)
+renderPanel.add(Check5)
+renderPanel.add(Check6)
+
+renderPanel.add(ui.Label({
+value: '____________________________________________',
+style: {fontWeight: 'bold', color: 'green'},
+}))
+//renderPanel.add(clearButton)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// IMPORT SHAPEFILE SECTION
+// THIS SECTION ALLOWS FOR GEE ASSETS TO BE IMPORTED INTO THE APPLICATION
+var fp_outline, fire_perimeter
+importPanel.add(ui.Label('Import Boundaries', {'font-size': '24px'}));
+var perim_id = ui.Textbox('asset id', 'Paste Asset ID Here')
+perim_id.style().set("width", "270px")
+importPanel.add(perim_id)
+// button for fire perimeter to the map
+var load_button = ui.Button({
+label: 'Load Asset',
+style: {width:"130px"},
+onClick: function(asset_id) {
+  add_fire_perimeter(String(perim_id.getValue()));
+  }
+});
+var clearImport = ui.Button({
+  label: 'Clear Asset',
+  style: {width:"130px"},
+//  value: false,
+  onClick: function(value) {
+    mapPanel.layers().set(18, fp_outline, {}, false);
+  }
+});
+
+var importPanel2 = ui.Panel([load_button, clearImport], ui.Panel.Layout.Flow('horizontal'));
+importPanel.add(importPanel2)
+importPanel.add(ui.Label({
+value: '____________________________________________',
+style: {fontWeight: 'bold', color: 'green'},
+}))
+
+// add fire perimeter to map
+var add_fire_perimeter = function(asset_id){
+  var fire_perimeter = ee.FeatureCollection(asset_id);
+  mapPanel.centerObject(fire_perimeter, 14);
+  // convert geometry to outline
+  var fp_outline = ee.Image().paint({featureCollection: fire_perimeter, width: 3});
+  // add to last slot in map
+  fp_outline = ui.Map.Layer(fp_outline, {'palette': 'black'});
+  mapPanel.layers().set(18, fp_outline);
+};
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// VISIT PUBLIC LANDS SECTION
+
+// FUNCTION THAT ZOOMS TO SELECTED LAND AND RENDERS BOUNDARY
+var select = ui.Select({
+  items: EasementNames.getInfo(),
+  placeholder: ('Choose Area of Interest'),
+  style: {width: '290px'},
+  onChange: function(keys) {
+    var selection = ee.Feature(Easements.filter(ee.Filter.eq('property_n', keys)).first());
+    mapPanel.centerObject(selection); 
+    var shown = true; // true or false, 1 or 0 
+    var opacity = 0.5; // number [0-1]
+    var Land_Bounds = ui.Map.Layer(selection, {color: 'black'}, 'Easement Selection', shown, opacity)
+    mapPanel.layers().set(14, Land_Bounds)
+  }
+});
+
+var locationPanel = ui.Panel([ui.Label('Visit Example Locations', {'font-size': '24px'}), select]);
+visitlandsPanel.add(locationPanel);
+
+visitlandsPanel.add(ui.Label({
+value: '____________________________________________',
+style: {fontWeight: 'bold', color: 'green'},
+}))
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// PIXEL INSPECTOR SECTION
+pixinspectorPanel.add(ui.Label('Model Analysis', {'font-size': '24px'}));
+pixinspectorPanel.add(ui.Label('1) Select the tool that you would like to use below',{fontSize: '11px'}));
+
+// CREATE THE INSPECTOR PANEL AND ADD IT TO THE MAP, INITIALLY HIDDEN
+var inspector = ui.Panel({style: {position: 'bottom-left', shown: true}});
+mapPanel.add(inspector);
+
+var histCheck = ui.Checkbox({
+  label: 'Calculate Histogram for Selected Parcel',
+  value: false,
+  onChange: function(checked) {
+    if (checked) {
+    mapPanel.layers().set(16, NoData, {}, true)
+    chartCheck.setDisabled(true);
+    }
+    else {
+    chartCheck.setDisabled(false);
+    mapPanel.layers().set(16, NoData, {}, '', false)
+    }
+  }
+})
+
+var chartCheck = ui.Checkbox({
+  label: 'Compare Model Scores Between Parcels',
+  value: false,
+  onChange: function(checked) {
+    if (checked) {
+    mapPanel.layers().set(17, NoData, {}, true)
+    histCheck.setDisabled(true);
+    }
+    else {
+    histCheck.setDisabled(false);
+    mapPanel.layers().set(17, NoData, {}, '', false)
+    }
+  }
+})
+
+pixinspectorPanel.add(histCheck)
+pixinspectorPanel.add(chartCheck)
+pixinspectorPanel.add(ui.Label('2) In the map, click on the lands that you want to analyze',{fontSize: '11px'}));
+pixinspectorPanel.add(ui.Label('*Only one histogram can be made at a time. Therefore, if more than one boundary is selected, the histogram will be a product of that combined selection.',{fontSize: '11px'}));
+
+pixinspectorPanel.add(ui.Label({
+value: '____________________________________________',
+style: {fontWeight: 'bold', color: 'green'},
+}))
+
+// // ON CLICK FUNCTION THAT POPULATED AND SHOWS THE INSPECTOR PANEL WITH FIRE HISTORY METRICS FOR THE SELECTED PIXEL
+// mapPanel.onClick(function(coords) {
+//   // GATHER THE IMAGE BANDS INTO A SINGLE IMAGE THAT WE CAN ASYNCHRONOUSLY SAMPLE
+//   var point = ee.Geometry.Point(coords.lon, coords.lat);
+//   var sample = ee.Image.cat(Upland, Wetland, Species, EVT, DTCL, TSPF)
+//       .unmask(0).sample(point, 30).first().toDictionary();
+//   sample.evaluate(function(values) {
+//     inspector.clear();
+//       inspector.add(ui.Label('Upland Model Suitability: ' + values.Upland));
+//       inspector.add(ui.Label('Wetland Model Suitability: ' + values.Wetland));
+//       //inspector.add(ui.Label('Species Habitat Overlap: ' + values.Species + ' species'));
+//       //inspector.add(ui.Label('Existing Vegetation Cover: ' + values.EVT));
+//       //inspector.add(ui.Label('Distance to Protected Areas: ' + values.DTCL));
+//       //inspector.add(ui.Label('Time Since Previous Fire: ' + values.TSPF + ' years'));
+//       inspector.add(ui.Button('Close', function() {
+//       inspector.style().set({shown: false});
+//     }));
+//     inspector.style().set({shown: true});
+//   });
+// });
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// REFERENCE LINKS SECTION
+referencelinksPanel.add(ui.Label('Reference Links', {'font-size': '24px'}));
+
+// Create a hyperlink to an external reference.
+var main_info_link = ui.Label('Background Information and Model Summary', {},'https://drive.google.com/file/d/1Wjj51b6wJ5iHZnJAqfg-mIu_Vz1PQbI1/view?usp=sharing')
+//var stats_link = ui.Label('Regional Statistics Table', {}, 'https://drive.google.com/file/d/1Vf-DhpoIugz1t2dhqeNmrHlim2QUllPO/view?usp=sharing')
+var link = ui.Label('Upland Species Habitat', {},'https://www.sciencebase.gov/catalog/item/5d0d2d45e4b0941bde52a20d');
+var link2 = ui.Label('Wetland Species Habitat', {},'http://www.basic.ncsu.edu/segap/');
+var link3 = ui.Label('Time Since Previous Fire',{},'https://www.mdpi.com/2571-6255/4/2/26')
+var link4 = ui.Label('Climate Resilience', {},'https://www.conservationgateway.org/ConservationByGeography/NorthAmerica/UnitedStates/edc/reportsdata/terrestrial/resilience/resilientland/Pages/default.aspx')
+referencelinksPanel.add(ui.Label('If you are interested in learning more about the data products, methods, and outputs from this project:',{fontSize: '11px'}));
+referencelinksPanel.add(main_info_link);
+referencelinksPanel.add(ui.Label('For more information about about the input data, see the following links:',{fontSize: '11px'}));
+referencelinksPanel.add(link3);
+referencelinksPanel.add(link);
+referencelinksPanel.add(link2);
+referencelinksPanel.add(link4);
+//referencelinksPanel.add(ui.Label('For a comprehensive table of zonal statistics:',{fontSize: '11px'}));
+//referencelinksPanel.add(stats_link);
+
+referencelinksPanel.add(ui.Label({
+value: '____________________________________________',
+style: {fontWeight: 'bold', color: 'green'},
+}))
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+closingPanel.add(ui.Label('This application is in development. Additional functionality may be available upon request', {fontSize: '11px'}))
+
+closingPanel.add(ui.Label('Please contact Eli Simonson (esimonson@talltimbers.org) if you have any questions about this application', {fontSize: '11px'}))
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// ADD PLACEHOLDERS FOR DATA THAT WILL BE LOADED INTO MAP PANEL
+// var Easement_lyr, NonTT_Easement_lyr, Land_Bounds, Counties_lyr, Parcels_lyr, PublicLands_lyr, BOT_lyr
+
+mapPanel.add(Parcels_lyr,{},'Parcel Boundaries')
+Parcels_lyr.setShown(false)
+
+mapPanel.add(Easement_lyr,{},'Tall Timbers Easements')
+Easement_lyr.setShown(false)
+
+mapPanel.add(NonTT_Easements_lyr,{},'Non Tall Timbers Easements')
+NonTT_Easements_lyr.setShown(false)
+
+mapPanel.add(PublicLands_lyr,{},'Public Land Boundaries')
+PublicLands_lyr.setShown(false)
+
+mapPanel.add(Counties_lyr,{},'County Boundaries')
+Counties_lyr.setShown(false)
+
+mapPanel.addLayer(NoData,{},'Easement Selection')
+
+mapPanel.add(BOT_lyr,{},'FF BOT Projects')
+BOT_lyr.setShown(false)
+
+mapPanel.addLayer(NoData,{},'Checkbox Placeholder #1')
+mapPanel.addLayer(NoData,{},'Checkbox Placeholder #2')
+mapPanel.addLayer(NoData,{},'Imported Asset')
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/*
+* The chart panel in the bottom-right
+*/
+
+// Suitability Charts by Easement
+var options = {
+title: 'Mean Upland Suitability by Parcel',
+fontSize: 12,
+hAxis: {},
+vAxis: {title: 'Mean Suitability Score', viewWindow: {min: 0}},
+legend: {position: 'none'},
+};
+var options2 = {
+title: 'Mean Wetland Suitability by Parcel',
+fontSize: 12,
+hAxis: {},
+vAxis: {title: 'Mean Suitability Score', viewWindow: {min: 0}},
+legend: {position: 'none'},
+};
+var options3 = {
+title: 'Upland Model Histogram for Selected Parcel',
+fontSize: 12,
+hAxis: {title: 'Prioritization Score'},
+vAxis: {title: 'Percent of Parcel', viewWindow: {min: 0, max: 100}, gridlines: {count: 0}},
+legend: {position: 'none'},
+};
+var options4 = {
+title: 'Wetland Model Histogram for Selected Parcel',
+fontSize: 12,
+hAxis: {title: 'Prioritization Score'},
+vAxis: {title: 'Percentage of Parcel', viewWindow: {min: 0, max: 100}, gridlines: {count: 0}},
+legend: {position: 'none'},
+};
+  
+var COUNTIES_STYLE = {color: '000000', fillColor: '00000000'};
+var HIGHLIGHT_STYLE = {color: 'ff0000', fillColor: '00000000'};
+
+// A list of points the user has clicked on, as [lon,lat] tuples.
+var selectedPoints = [];
+
+// // Returns the list of countries the user has selected.
+// function getSelectedCounties() {
+//   return LLL_Parcels_Master.filterBounds(ee.Geometry.MultiPoint(selectedPoints));
+// }
+
+//LLL_Parcels_Master.merge(fire_perimeter)
+
+// Returns the list of countries the user has selected.
+function getSelectedCounties() {
+  if (chartCheck.getValue()) {
+  return LLL_Parcels_Master.filterBounds(ee.Geometry.MultiPoint(selectedPoints));
+  }
+  else if (histCheck.getValue()) {
+  return LLL_Parcels_Master.filterBounds(ee.Geometry.MultiPoint(selectedPoints));
+  }
+}
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Makes a bar chart of the given FeatureCollection of countries by name.
+function makeHistogram_Upland(easements) {
+  
+  var frequency = upland_reclass.reduceRegion({
+  reducer:ee.Reducer.frequencyHistogram(),
+  geometry:easements,
+  scale: 30
+  });
+  
+  var dict = ee.Dictionary(frequency.get('constant'));
+  var sum = ee.Array(dict.values()).reduce(ee.Reducer.sum(),[0]).get([0]);
+  var new_dict = dict.map(function(k,v) {
+  return ee.Number(v).divide(sum).multiply(100);
+  });
+  
+  var labeledDict = new_dict.keys().iterate(
+  function (value, labeledDict) {
+    value = ee.String(value)
+    return ee.Dictionary(labeledDict)
+      .set(labelByValue.get(value), new_dict.get(value))
+  },
+  ee.Dictionary({})
+  )
+  
+  var chart = ui.Chart.feature.byProperty(
+  ee.Feature(null, labeledDict)).setOptions(options3)
+  return chart
+}
+
+// Makes a bar chart of the given FeatureCollection of countries by name.
+function makeHistogram_Wetland(easements) {
+  var frequency = wetland_reclass.reduceRegion({
+  reducer:ee.Reducer.frequencyHistogram(),
+  geometry:easements,
+  scale: 30
+  });
+  
+  var dict = ee.Dictionary(frequency.get('constant'));
+  var sum = ee.Array(dict.values()).reduce(ee.Reducer.sum(),[0]).get([0]);
+  var new_dict = dict.map(function(k,v) {
+  return ee.Number(v).divide(sum).multiply(100);
+  });
+  
+  var labeledDict = new_dict.keys().iterate(
+  function (value, labeledDict) {
+    value = ee.String(value)
+    return ee.Dictionary(labeledDict)
+      .set(labelByValue.get(value), new_dict.get(value))
+  },
+  ee.Dictionary({})
+  )
+  
+  var chart = ui.Chart.feature.byProperty(
+  ee.Feature(null, labeledDict)).setOptions(options4)
+  return chart
+}
+
+function updateOverlay4Hist() {
+  var overlay = getSelectedCounties().style(HIGHLIGHT_STYLE);
+  mapPanel.layers().set(19, ui.Map.Layer(overlay));
+}
+
+function updateHist() {
+  var chartBuilder = HistToggleButton.value;
+  var chart = chartBuilder(getSelectedCounties());
+  inspector.clear().add(chart).add(Histbuttons);
+}
+
+// Clears the set of selected points and resets the overlay and results
+// panel to their default state.
+function clearHist() {
+  selectedPoints = [];
+  mapPanel.layers().remove(mapPanel.layers().get(19));
+  var instructionsLabel2 = ui.Label('Histogram Panel');
+  inspector.widgets().reset([instructionsLabel2]);
+}
+
+
+
+function ToggleButtonHist(states, onClick) {
+  var index = 0;
+  var button = ui.Button(states[index].label);
+  button.value = states[index].value;
+  button.onClick(function() {
+    index = ++index % states.length;
+    button.setLabel(states[index].label);
+    button.value = states[index].value;
+    onClick();
+  });
+  return button;
+}
+
+var HistToggleButton = ToggleButtonHist(
+    [
+      {
+        label: 'Display Wetland Model Histogram',
+        value: makeHistogram_Upland,
+      },
+      {
+        label: 'Display Upland Model Histogram',
+        value: makeHistogram_Wetland,
+      }
+    ],
+    updateHist);
+    
+var Histbuttons = ui.Panel(
+    [ui.Button('Clear results', clearHist), HistToggleButton],
+    ui.Panel.Layout.Flow('horizontal'), {margin: '0 0 0 auto', width: '500px'});
+    
+function handleMapClickHist(location) {
+  if (histCheck.getValue()) { 
+  selectedPoints.push([location.lon, location.lat]);
+  updateOverlay4Hist();
+  updateHist();
+  //selectedPoints = []
+  }
+}
+mapPanel.onClick(handleMapClickHist);
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Makes a bar chart of the given FeatureCollection of countries by name.
+function makeResultsBarChart_Upland(easements) {
+  var chart = ui.Chart.image.regions(Upland, easements, ee.Reducer.mean(), 30,'property_n').setOptions(options).setChartType('BarChart')
+  chart.style().set({stretch: 'both'});
+  return chart
+}
+
+// Makes a bar chart of the given FeatureCollection of countries by name.
+function makeResultsBarChart_Wetland(easements) {
+  var chart = ui.Chart.image.regions(Wetland, easements, ee.Reducer.mean(), 30,'property_n').setOptions(options2).setChartType('BarChart')
+  chart.style().set({stretch: 'both'});
+  return chart
+}
+
+// // Makes a table of the given FeatureCollection of countries by name.
+// function makeResultsTable(easements) {
+//   var table = ui.Chart.feature.byFeature(easements, 'Name');
+//   table.setChartType('Table');
+//   table.setOptions({allowHtml: true, pageSize: 5});
+//   table.style().set({stretch: 'both'});
+//   return table;
+// }
+
+// Updates the map overlay using the currently-selected countries.
+function updateOverlay() {
+  var overlay = getSelectedCounties().style(HIGHLIGHT_STYLE);
+  mapPanel.layers().set(19, ui.Map.Layer(overlay));
+}
+
+// Updates the chart using the currently-selected charting function,
+function updateChart() {
+  var chartBuilder = chartTypeToggleButton.value;
+  var chart = chartBuilder(getSelectedCounties());
+  resultsPanel.clear().add(chart).add(buttonPanel);
+}
+
+// Clears the set of selected points and resets the overlay and results
+// panel to their default state.
+function clearResults() {
+  selectedPoints = [];
+  mapPanel.layers().remove(mapPanel.layers().get(19));
+  var instructionsLabel = ui.Label('Bar Chart Panel');
+  resultsPanel.widgets().reset([instructionsLabel]);
+}
+
+// Register a click handler for the map that adds the clicked point to the
+// list and updates the map overlay and chart accordingly.
+function handleMapClick(location) {
+  if (chartCheck.getValue()) { 
+  selectedPoints.push([location.lon, location.lat]);
+  updateOverlay();
+  updateChart();
+  }
+}
+mapPanel.onClick(handleMapClick);
+
+// A button widget that toggles (or cycles) between states.
+// To construct a ToggleButton, supply an array of objects describing
+// the desired states, each with 'label' and 'value' properties.
+function ToggleButton(states, onClick) {
+  var index = 0;
+  var button = ui.Button(states[index].label);
+  button.value = states[index].value;
+  button.onClick(function() {
+    index = ++index % states.length;
+    button.setLabel(states[index].label);
+    button.value = states[index].value;
+    onClick();
+  });
+  return button;
+}
+
+// Our chart type toggle button: the button text is the opposite of the
+// current state, since you click the button to switch states.
+var chartTypeToggleButton = ToggleButton(
+    [
+      {
+        label: 'Display Wetland Model Chart',
+        value: makeResultsBarChart_Upland,
+      },
+      {
+        label: 'Display Upland Model Chart',
+        value: makeResultsBarChart_Wetland,
+      }
+    ],
+    updateChart);
+
+// A panel containing the two buttons .
+var buttonPanel = ui.Panel(
+    [ui.Button('Clear results', clearResults), chartTypeToggleButton],
+    ui.Panel.Layout.Flow('horizontal'), {margin: '0 0 0 auto', width: '500px'});
+
+var resultsPanel = ui.Panel({style: {position: 'bottom-right'}});
+mapPanel.add(resultsPanel);
+clearResults();
+clearHist()
+
+

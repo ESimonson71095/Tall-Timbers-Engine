@@ -1,0 +1,221 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var LLL = ee.FeatureCollection("users/esimonson/AOIs/Longleaf_Legacy"),
+    plantations = ee.FeatureCollection("users/esimonson/AOIs/Plantations"),
+    LLL_Parcels = ee.FeatureCollection("users/esimonson/LLL_Parcels_50ac"),
+    upland_model = ee.Image("users/esimonson/upland_model"),
+    wetland_model = ee.Image("users/esimonson/wetland_model"),
+    geometry = /* color: #23cba7 */ee.Geometry.MultiPoint();
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// REFERENCE
+// Center the map to an area of interest (ex. Tall Timbers)
+Map.setCenter(-84.20875, 30.6565, 12)
+
+// Call in NAIP imagery for reference
+var NAIP = ee.ImageCollection('USDA/NAIP/DOQQ')
+  .filterBounds(LLL)
+  .filterDate('2017-01-01','2017-11-30')
+  .mosaic();
+var visParams = {bands:['R', 'G', 'B']}
+Map.addLayer(NAIP, visParams, 'High Resolution Reference Imagery');
+
+// Create an array for the 'name' attribute of the plantations feature collection
+var names = plantations.aggregate_array('name');
+
+// Create an empty image into which to paint the feature collection, cast to byte.
+var empty = ee.Image().byte();
+
+// Paint all the polygon edges with the same number and width, display.
+var outline = empty.paint({
+  featureCollection: LLL_Parcels,
+  color: 1,
+  width: 2
+});
+
+//Create plantation selection widget that searches the feature collecton by array of names
+var select = ui.Select({
+  items: names.getInfo(),
+  placeholder: ('Parcel Reference Layer'),
+  style: {width: '290px'},
+  // function that adds all necessary layers and zooms into area selected
+  onChange: function(key) {
+    Map.layers().reset(); //clears previous calculations from map upon new selection
+    Map.addLayer(NAIP, visParams, 'High Resolution Reference Imagery')
+    var selection = ee.Feature(plantations.filter(ee.Filter.eq('name', key)).first());
+    Map.centerObject(selection); //centers map on Plantation selection
+    // show plantation
+    var shown = true; // true or false, 1 or 0
+    var opacity = 0.5; // number [0-1]
+    Map.addLayer(outline, {}, 'LLL Parcels')
+    Map.addLayer(selection, {color:'blue'}, 'Plantation', shown, opacity)
+  }
+});
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// CUSTOM DRAWING TOOLS
+// 1. Get the drawing tools widget object; define it as a variable for convenience in recalling it later
+var drawingTools = Map.drawingTools();
+
+// 2. Hide the default drawing tools so you can add your own. You can use the default drawing tools for 
+//    interactive region reduction, but they provide more functionality than is needed when simplicity is the goal
+drawingTools.setShown(false);
+
+// 3. Setup a while loop to clear all existing geometries that have been added as imports from drawing tools (from previously running the script) 
+//    The design of the app is to handle charting a time series for a single geometry, so remove any that exist.
+while (drawingTools.layers().length() > 0) {
+  var layer = drawingTools.layers().get(0);
+  drawingTools.layers().remove(layer);
+}
+
+// 4. Initialize a dummy GeometryLayer with null geometry to act as a placeholder for drawn geometries.
+var dummyGeometry =
+    ui.Map.GeometryLayer({geometries: null, name: 'geometry', color: '23cba7'});
+
+drawingTools.layers().add(dummyGeometry);
+
+// EVENT CALLBACK FUNCTIONS
+//    Define a series of functions that are called when geometry drawing buttons are clicked: one for clearing the previous geometry from the 
+//    GeometryLayer and one for each drawing mode button (rectangle, polygon, and point)
+// 1. Define the geometry clearing function
+function clearGeometry() {
+  var layers = drawingTools.layers();
+  layers.get(0).geometries().remove(layers.get(0).geometries().get(0));
+}
+
+// 2. Define functions that will be called when each respective drawing button is clicked. Each function will clear previous drawings using the 
+//    clearGeometry function and then initialize drawing for the particular drawing mode
+function drawRectangle() {
+  clearGeometry();
+  drawingTools.setShape('rectangle');
+  drawingTools.draw();
+}
+
+function drawPolygon() {
+  clearGeometry();
+  drawingTools.setShape('polygon');
+  drawingTools.draw();
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// ZONAL HISTOGRAM 
+// 1. Define panels to hold the histograms. Set the shown style parameter to false to initially hide the panels until the first charts are rendered
+var chartPanel1 = ui.Panel({
+  style:
+      {height: '235px', width: '600px', position: 'bottom-right', shown: false}
+});
+var chartPanel2 = ui.Panel({
+  style:
+      {height: '235px', width: '600px', position: 'top-right', shown: false}
+});
+// 2. Add the panel to the Map
+Map.add(chartPanel1);
+Map.add(chartPanel2)
+
+// 3. Define a function that gets called on geometry drawing completion and editing events to generate a zonal histogram for the drawn region. 
+//    See code comments for an explanation of each step. In summary, the function shows the chart panel on the first drawing event, clears previously 
+//    rendered charts, gets the drawn geometry, calculates the region reduction scale based on the Map scale, and renders a chart in the chart panel.
+function chartzonalhist() {
+  // Make the chart panel visible the first time a geometry is drawn.
+  if (!chartPanel1.style().get('shown')) {
+    chartPanel1.style().set('shown', true);
+  }
+
+  // Get the drawn geometry; it will define the reduction region.
+  var aoi = drawingTools.layers().get(0).getEeObject();
+
+  // Set the drawing mode back to null; turns drawing off.
+  drawingTools.setShape(null);
+
+  // Reduction scale is based on map scale to avoid memory/timeout errors.
+  var mapScale = Map.getScale();
+  var scale = mapScale > 5000 ? mapScale * 2 : 5000;
+
+  // Create a zonal histogram for the selected area of interest.
+  // Pre-define some customization options.
+  var options1 = {
+  title: 'Wetland Prioritization Histogram for Area of Interest',
+  fontSize: 14,
+  hAxis: {title: 'Prioritization Score'},
+  vAxis: {title: 'Count of Priotiziation Scores'}
+  };
+  
+  var chart1 = ui.Chart.image.histogram(wetland_model, aoi, 30)
+                  .setOptions(options1);
+              
+  // Replace the existing chart in the chart panel with the new chart.
+  chartPanel1.widgets().reset([chart1]);
+  }
+
+// 4. Set the drawing tools widget to listen for geometry drawing and editing events and respond with the chartNdviTimeSeries function.
+// Note that ui.util.debounce wraps the chartNdviTimeSeries function to reduce the frequency of it being invoked while drawing and editing a geometry. 
+// Here, the delay is set to 500 milliseconds or 0.5 seconds.
+drawingTools.onDraw(ui.util.debounce(chartzonalhist, 500));
+drawingTools.onEdit(ui.util.debounce(chartzonalhist, 500));
+
+// Repeat function for other model scenario
+function chartzonalhist2() {
+  if (!chartPanel2.style().get('shown')) {
+    chartPanel2.style().set('shown', true);
+  }
+  var aoi = drawingTools.layers().get(0).getEeObject();
+  drawingTools.setShape(null);
+  var mapScale = Map.getScale();
+  var scale = mapScale > 5000 ? mapScale * 2 : 5000;
+  var options2 = {
+  title: 'Upland Prioritization Histogram for Area of Interest',
+  fontSize: 14,
+  hAxis: {title: 'Prioritization Score'},
+  vAxis: {title: 'Count of Priotiziation Scores'}
+  };
+  var chart2 = ui.Chart.image.histogram(upland_model, aoi, 30)
+                   .setOptions(options2);                
+  chartPanel2.widgets().reset([chart2]);
+  }
+drawingTools.onDraw(ui.util.debounce(chartzonalhist2, 500));
+drawingTools.onEdit(ui.util.debounce(chartzonalhist2, 500));
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// USER INTERFACE
+// This section defines the drawing control panel, which contains instructions and drawing tool buttons.
+// 1. Define a dictionary of symbols to augment the text label for each of the geometry buttons defined in the following step. 
+// The symbols are kept separate from the text to avoid unexpected cursor behavior when mixing symbols and text.
+var symbol = {
+  rectangle: '⬛',
+  polygon: '🔺',
+};
+
+// 2. Define a ui.Panel to hold app instructions and the geometry drawing buttons. Use a ui.Label for each instruction line and a ui.Button
+// for each of the three geometry drawing options. Button labels are the concatenation of the symbols defined in the previous step and text. 
+// Set the onClick parameter to each respective drawing mode callback function defined above.
+var controlPanel = ui.Panel({
+  widgets: [
+    ui.Chart([['<img src=https://www.findalandtrust.org/land_trusts/7581/logo width=350px>']],'Table', {allowHtml: true}),
+    ui.Label('Generate a Zonal Histogram for an Area of Interest', {fontWeight: 'bold', fontSize: '14px', margin: '10px 5px'}),
+    ui.Label('1) Zoom to an Area of Interest', {fontWeight: 'bold'}), 
+    ui.Label('If your area of interest is not listed, contact support to get your area added or simply search around the map to find it',{fontSize: '12px'}),
+    select, // adds drop down widget
+    ui.Label('2) Use the tools below to define a custom area', {fontWeight: 'bold'}), 
+    ui.Button({
+      label: symbol.rectangle + ' Rectangle',
+      onClick: drawRectangle,
+      style: {stretch: 'horizontal'}
+    }),
+    ui.Button({
+      label: symbol.polygon + ' Polygon',
+      onClick: drawPolygon,
+      style: {stretch: 'horizontal'}
+    }),
+    ui.Label('3) Wait for chart to render.', {fontWeight: 'bold'}),
+    ui.Label('4) Repeat steps 1-3 to obtain histograms for a new area.', {fontWeight: 'bold'}),
+  ],
+  style: {height: '550px', width: '400px', position: 'bottom-left'},
+  layout: null,
+});
+
+// 3. Add the panel to the Map.
+Map.add(controlPanel);
+
